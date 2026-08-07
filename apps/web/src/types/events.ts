@@ -1,7 +1,7 @@
 /**
  * Mirrors packages/contracts/events.py.
  *
- * Only the 17 event types the backend ACTUALLY emits are modelled as live.
+ * Only event types the backend actually emits are modelled as live.
  * `run.started`, `a2a.message`, `token.usage` and `proactive.alert` are
  * declared in the Python enum but never emitted anywhere in apps/api — the UI
  * must not reserve space for data that never arrives.
@@ -14,6 +14,8 @@ export type EventType =
   | 'node.finished'
   | 'node.failed'
   | 'agent.thinking'
+  | 'schedule.checked'
+  | 'attendance.impact.calculated'
   | 'conflict.detected'
   | 'conflict.resolved'
   | 'tool.called'

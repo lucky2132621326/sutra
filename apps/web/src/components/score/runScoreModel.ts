@@ -31,7 +31,7 @@ export interface ScoreBlock {
   track: number
 }
 
-export type ScoreMarkerKind = 'plan' | 'replan' | 'conflict' | 'approval' | 'finish' | 'error' | 'fallback'
+export type ScoreMarkerKind = 'plan' | 'replan' | 'safety' | 'conflict' | 'approval' | 'finish' | 'error' | 'fallback'
 
 export interface ScoreMarker {
   id: string
@@ -92,6 +92,12 @@ function markerFor(e: AgentEvent, index: number, planVersion: number): ScoreMark
   }
   if (e.type === 'conflict.detected') {
     return { id: e.id, kind: 'conflict', label: 'Academic veto', ts: e.ts, index }
+  }
+  if (e.type === 'schedule.checked') {
+    return { id: e.id, kind: 'safety', label: 'Schedule checked', ts: e.ts, index }
+  }
+  if (e.type === 'attendance.impact.calculated') {
+    return { id: e.id, kind: 'safety', label: 'Attendance impact', ts: e.ts, index }
   }
   if (e.type === 'approval.requested') {
     return { id: e.id, kind: 'approval', label: 'Human gate', ts: e.ts, index }

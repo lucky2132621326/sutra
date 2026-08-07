@@ -92,7 +92,7 @@ let turnSeq = 0
 export const useStore = create<UIState & Actions>((set, get) => ({
   mode: 'replay',
   theme: 'light',
-  fixture: 'golden_conflict.jsonl',
+  fixture: 'golden_capabilities.jsonl',
   pacing: 'demo',
   speed: 1,
   status: 'idle',

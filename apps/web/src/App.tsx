@@ -12,6 +12,7 @@ import { ReplaySource, loadFixture } from './transport/replaySource'
 import { SSEClient, health, postApprove, postChat } from './transport/sseClient'
 
 const FIXTURES = [
+  { file: 'golden_capabilities.jsonl', label: 'Full platform showcase · 24 tools' },
   { file: 'golden_conflict.jsonl', label: 'Conflict & arbitration' },
   { file: 'golden_clean.jsonl', label: 'Read-only question' },
   { file: 'golden_chaos.jsonl', label: 'Failure recovery' },
@@ -66,6 +67,10 @@ export default function App() {
     st.resetRun()
     const events = await loadFixture(file)
     st.loadEvents(events)
+    // Playing a run is the explicit request to inspect it. The ordinary app
+    // still opens on the mission gallery; this switches only after the user
+    // presses Play.
+    st.setCenterView('score')
 
     // Seed the transcript from the run itself, so replay and live produce the
     // same shape of conversation rather than two different-looking modes.
@@ -316,7 +321,9 @@ function Header({ onReplay }: { onReplay: () => void }) {
             aria-label="Recorded run">
             {FIXTURES.map((f) => <option key={f.file} value={f.file}>{f.label}</option>)}
           </select>
-          <button onClick={onReplay} style={primaryBtn}>Play run</button>
+          <button onClick={onReplay} style={primaryBtn}>
+            {s.fixture === 'golden_capabilities.jsonl' ? 'Play full showcase' : 'Play run'}
+          </button>
           <select value={s.speed} onChange={(e) => s.setSpeed(Number(e.target.value))} style={selectStyle}
             aria-label="Replay speed">
             {[0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}×</option>)}

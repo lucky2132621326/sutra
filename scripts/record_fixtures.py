@@ -96,8 +96,11 @@ async def record(name: str, *, goal: str, decision: str = "approve", chaos: str 
 
 async def main():
     FIXTURES.mkdir(exist_ok=True)
-    for old in FIXTURES.glob("*.jsonl"):
-        old.unlink()
+    # Replace only the four graph-run fixtures owned by this recorder. The
+    # separate full capability verification is produced by
+    # record_capability_fixture.py and must survive a hero-fixture refresh.
+    for name in ("golden_clean", "golden_conflict", "golden_chaos", "golden_reject"):
+        (FIXTURES / f"{name}.jsonl").unlink(missing_ok=True)
 
     print("Recording demo fixtures (MOCK_LLM=1, zero quota):\n")
     await record("golden_clean", goal=READONLY)

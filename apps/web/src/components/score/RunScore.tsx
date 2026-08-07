@@ -25,6 +25,7 @@ const STATUS_STYLE: Record<ScoreBlockStatus, { label: string; color: string; bg:
 const MARKER_STYLE: Record<ScoreMarker['kind'], { color: string; bg: string; glyph: string }> = {
   plan: { color: 'var(--accent)', bg: 'var(--accent-weak)', glyph: '◇' },
   replan: { color: 'var(--degraded)', bg: 'var(--degraded-bg)', glyph: '↻' },
+  safety: { color: 'var(--running)', bg: 'var(--running-bg)', glyph: '⌖' },
   conflict: { color: 'var(--danger)', bg: 'var(--danger-bg)', glyph: '⚡' },
   approval: { color: 'var(--approval)', bg: 'var(--approval-bg)', glyph: '⏸' },
   finish: { color: 'var(--success)', bg: 'var(--success-bg)', glyph: '✓' },
@@ -160,6 +161,7 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
   const heights = SCORE_LANES.map((lane) => laneHeight(blocksByLane.get(lane.id) ?? [], lane.id === 'orchestrator'))
   const bodyHeight = heights.reduce((sum, height) => sum + height, 0)
   const criticalMarkers = model.markers.filter((marker) => marker.kind === 'conflict' || marker.kind === 'approval')
+  const observedTools = new Set(model.blocks.flatMap((block) => block.tools))
 
   const inspect = (block: ScoreBlock) => {
     if (mode === 'replay') onSeek(block.endIndex)
@@ -182,20 +184,23 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
       background: 'var(--paper)', overflow: 'hidden',
     }}>
       <header style={{
-        display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
+        display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px',
         borderBottom: '1px solid var(--line)', background: 'var(--surface)',
       }}>
-        <div style={{ minWidth: 0 }}>
-          <div className="eyebrow" style={{ color: 'var(--accent)' }}>Agent collaboration score</div>
-          <div style={{ fontSize: 12, color: 'var(--ink-400)' }}>
-            {mode === 'replay' ? 'Recorded run timing' : 'Live wall time'} · short work is widened for readability
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div className="eyebrow" style={{ color: 'var(--accent)' }}>Agent collaboration score</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-400)' }}>
+              {mode === 'replay' ? 'Recorded backend events' : 'Live wall time'} · short work is widened for readability
+            </div>
+          </div>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, alignItems: 'baseline' }}>
+            <Metric label="Elapsed" value={`${formatElapsed(elapsedMs)} / ${formatElapsed(model.durationMs)}`} />
+            <Metric label="Peak parallel" value={`${model.peakConcurrency || 0} agents`} />
+            <Metric label="Tools verified" value={`${observedTools.size} / 24`} />
           </div>
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, alignItems: 'baseline' }}>
-          <Metric label="Elapsed" value={`${formatElapsed(elapsedMs)} / ${formatElapsed(model.durationMs)}`} />
-          <Metric label="Peak parallel" value={`${model.peakConcurrency || 0} agents`} />
-          <Metric label="Plan" value={`v${Math.max(1, run.planVersion)}`} />
-        </div>
+        <CapabilityCoverage blocks={model.blocks} />
       </header>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -234,7 +239,12 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
                       padding: '10px 10px 8px 14px', borderRight: '1px solid var(--line)',
                       display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0,
                     }}>
-                      <span className="eyebrow" style={{ color: `var(--agent-${lane.id})`, fontSize: 10.5 }}>
+                      <span className="eyebrow" style={{
+                        color: lane.id === 'orchestrator'
+                          ? 'var(--agent-orchestration)'
+                          : `var(--agent-${lane.id})`,
+                        fontSize: 10.5,
+                      }}>
                         {lane.label}
                       </span>
                       <span style={{ fontSize: 10.5, lineHeight: '14px', color: 'var(--ink-400)' }}>{lane.role}</span>
@@ -355,6 +365,62 @@ function Metric({ label, value }: { label: string; value: string }) {
       <div className="tnum" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink-900)', whiteSpace: 'nowrap' }}>
         {value}
       </div>
+    </div>
+  )
+}
+
+const TOOL_TOTALS: Record<string, number> = {
+  academic: 5,
+  placement: 4,
+  events: 4,
+  knowledge: 2,
+  services: 9,
+}
+
+function CapabilityCoverage({ blocks }: { blocks: ScoreBlock[] }) {
+  const byAgent = new Map<string, Set<string>>()
+  for (const block of blocks) {
+    const tools = byAgent.get(block.lane) ?? new Set<string>()
+    block.tools.forEach((tool) => tools.add(tool))
+    byAgent.set(block.lane, tools)
+  }
+
+  return (
+    <div aria-label="Backend capability coverage" style={{
+      display: 'grid', gridTemplateColumns: 'repeat(5, minmax(90px, 1fr))', gap: 6,
+    }}>
+      {SCORE_LANES.filter((lane) => lane.id !== 'orchestrator').map((lane) => {
+        const count = byAgent.get(lane.id)?.size ?? 0
+        const total = TOOL_TOTALS[lane.id]
+        const complete = count === total
+        return (
+          <div key={lane.id} title={`${count} of ${total} ${lane.label} tools observed`} style={{
+            minWidth: 0, padding: '5px 7px', border: '1px solid var(--line)',
+            borderRadius: 'var(--r-chip)', background: complete ? 'var(--success-bg)' : 'var(--surface-sunken)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+              <span className="eyebrow" style={{
+                minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
+                color: complete ? 'var(--success)' : `var(--agent-${lane.id})`, fontSize: 9,
+              }}>{lane.label}</span>
+              <span className="tnum" style={{
+                marginLeft: 'auto', color: complete ? 'var(--success)' : 'var(--ink-400)',
+                fontSize: 10.5, fontWeight: 700,
+              }}>{count}/{total}</span>
+            </div>
+            <span style={{
+              display: 'block', height: 2, marginTop: 3, borderRadius: 2,
+              background: 'var(--line)', overflow: 'hidden',
+            }}>
+              <span style={{
+                display: 'block', height: '100%', width: `${(count / total) * 100}%`,
+                background: complete ? 'var(--success)' : `var(--agent-${lane.id})`,
+                transition: 'width var(--t-state)',
+              }} />
+            </span>
+          </div>
+        )
+      })}
     </div>
   )
 }

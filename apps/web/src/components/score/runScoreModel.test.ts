@@ -79,6 +79,17 @@ describe('run score model', () => {
     expect(model.markers.find((marker) => marker.kind === 'conflict')?.label).toBe('Academic veto')
   })
 
+  it('surfaces deterministic schedule and attendance safety checks', () => {
+    const events = [
+      plan(),
+      event('schedule.checked', 1, { agent: 'academic', payload: { has_conflict: true } }),
+      event('attendance.impact.calculated', 1.1, { agent: 'academic', payload: { current_pct: 70.3 } }),
+    ]
+    expect(buildRunScoreModel(events).markers.map((marker) => marker.label)).toEqual([
+      'Plan v1', 'Schedule checked', 'Attendance impact',
+    ])
+  })
+
   it('turns duplicate approval requests into one bounded human gate', () => {
     const events = [
       plan(),

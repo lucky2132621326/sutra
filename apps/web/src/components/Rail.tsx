@@ -13,6 +13,7 @@ const GLYPH: Record<string, string> = {
   'plan.created': '◫', 'plan.revised': '↻', 'node.started': '▸', 'node.finished': '✓',
   'node.failed': '✕', 'agent.thinking': '⋯', 'tool.called': '⌘', 'tool.result': '←',
   'tool.retry': '↻', 'tool.fallback': '⇢', 'rag.retrieved': '❝', 'conflict.detected': '⚔',
+  'schedule.checked': '⌖', 'attendance.impact.calculated': '%',
   'conflict.resolved': '✓', 'approval.requested': '⏸', 'approval.resolved': '▶',
   'memory.recall': '◔', 'memory.write': '◉', 'run.finished': '★', 'run.error': '!',
 }
@@ -31,6 +32,10 @@ function summarize(e: AgentEvent): string {
     case 'tool.result': return `${p.tool} → ${p.status}${p.error ? ` · ${p.error}` : ''}`
     case 'tool.retry': return `${p.tool} retry ${p.attempt}`
     case 'tool.fallback': return `${p.tool} → ${p.to} (${p.reason})`.slice(0, 90)
+    case 'schedule.checked': return p.has_conflict
+      ? `schedule clash · ${p.detail}`.slice(0, 90)
+      : `schedule clear · ${p.event_title ?? 'proposed event'}`
+    case 'attendance.impact.calculated': return `${p.course_name ?? p.course_id}: ${p.current_pct}% → ${p.projected_pct}%`
     case 'rag.retrieved': return p.abstained ? 'no relevant clause — abstained' : `${p.chunks} clauses retrieved`
     case 'conflict.detected': return `${(p.conflicts ?? []).length} conflict(s) — ${p.rationale ?? ''}`.slice(0, 110)
     case 'conflict.resolved': return 'arbiter pass — no conflicts'

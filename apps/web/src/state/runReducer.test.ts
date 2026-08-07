@@ -35,6 +35,40 @@ describe('every fixture folds without throwing', () => {
   })
 })
 
+describe('golden_capabilities — the full backend systems check', () => {
+  const events = load('golden_capabilities.jsonl')
+  const state = reduceAll(events)
+  const tools = new Set(
+    events
+      .filter((event) => event.type === 'tool.called')
+      .map((event) => String(event.payload.tool)),
+  )
+
+  it('verifies every registered tool across all five specialists', () => {
+    expect(state.plan?.steps).toHaveLength(24)
+    expect(tools.size).toBe(24)
+    expect(state.telemetry.toolCalls).toBe(24)
+    expect(state.telemetry.agentsUsed.sort()).toEqual(
+      ['academic', 'events', 'knowledge', 'placement', 'services'].sort(),
+    )
+  })
+
+  it('finishes every step and records genuine parallel execution', () => {
+    expect(Object.values(state.steps)).toHaveLength(24)
+    expect(Object.values(state.steps).every((step) => step.status === 'done')).toBe(true)
+    expect(state.telemetry.peakConcurrency).toBeGreaterThanOrEqual(5)
+  })
+
+  it('proves policy grounding, conflict evidence, approvals and receipts', () => {
+    expect(state.citations.length).toBeGreaterThan(0)
+    expect(state.conflicts).toHaveLength(1)
+    expect(Object.keys(state.approvals)).toHaveLength(3)
+    expect(state.actions).toHaveLength(7)
+    expect(state.actions.every((action) => action.outcome === 'executed')).toBe(true)
+    expect(state.actions.every((action) => action.receiptId)).toBe(true)
+  })
+})
+
 // golden_clean is a READ-ONLY run. It used to be the registration path, but the
 // Thursday clash is now detected against the real timetable, so any goal that
 // registers for the workshop genuinely conflicts — "clean" has to mean "asked

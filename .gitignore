@@ -39,6 +39,7 @@ fixtures/*.jsonl
 !fixtures/golden_conflict.jsonl
 !fixtures/golden_chaos.jsonl
 !fixtures/golden_reject.jsonl
+!fixtures/golden_capabilities.jsonl
 
 # Logs and operating-system/editor files
 *.log
