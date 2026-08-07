@@ -138,6 +138,10 @@ body {
 }
 .inspector { animation: sutra-slide-in var(--t-state) both; }
 
+.mission, .mission-group { transition: background var(--t-micro), border-color var(--t-micro), box-shadow var(--t-micro); }
+.mission:hover { background: var(--surface-sunken) !important; }
+.mission-group:hover { border-color: var(--line-strong) !important; box-shadow: var(--e2) !important; }
+
 @media (prefers-reduced-motion: reduce) {
   .evidence-card, .inspector { animation: none; }
 }

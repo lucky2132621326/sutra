@@ -6,7 +6,7 @@ import type { TransportStatus } from '../transport/types'
 import { initialRunState, reduce, reduceAll, type RunState } from './runReducer'
 
 export type Mode = 'replay' | 'live'
-export type CenterView = 'score' | 'plan'
+export type CenterView = 'missions' | 'score' | 'plan'
 
 /**
  * One exchange in the conversation. Deliberately NOT part of RunState: a
@@ -99,7 +99,7 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   progress: { index: 0, total: 0 },
   selectedStepId: null,
   activeApprovalId: null,
-  centerView: 'score',
+  centerView: 'missions',
   rail: 'timeline',
   events: [],
   run: initialRunState(),

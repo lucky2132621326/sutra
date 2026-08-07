@@ -4,15 +4,19 @@ import type { AgentEvent } from '../types/events'
 import { useStore } from './store'
 
 afterEach(() => {
-  useStore.setState({ centerView: 'score', mode: 'replay', events: [], progress: { index: 0, total: 0 } })
+  useStore.setState({ centerView: 'missions', mode: 'replay', events: [], progress: { index: 0, total: 0 } })
   useStore.getState().resetRun()
 })
 
 describe('cockpit view state', () => {
-  it('defaults to the run score and preserves a deliberate Plan DAG switch', () => {
+  it('defaults to missions and opens inspection deliberately', () => {
+    expect(useStore.getState().centerView).toBe('missions')
+    useStore.getState().setCenterView('score')
     expect(useStore.getState().centerView).toBe('score')
     useStore.getState().setCenterView('plan')
     expect(useStore.getState().centerView).toBe('plan')
+    useStore.getState().setCenterView('missions')
+    expect(useStore.getState().centerView).toBe('missions')
   })
 
   it('buffers live events for the score without duplicating replay fixtures', () => {

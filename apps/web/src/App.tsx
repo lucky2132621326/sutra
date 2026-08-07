@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { ApprovalModal } from './components/ApprovalModal'
 import { Conversation } from './components/Conversation'
+import { MissionGallery } from './components/MissionGallery'
 import { NodeInspector } from './components/NodeInspector'
 import { PlanCanvas } from './components/dag/PlanCanvas'
 import { Citations, Memory, Telemetry, Timeline } from './components/Rail'
@@ -204,12 +205,18 @@ export default function App() {
           display: 'flex', flexDirection: 'column',
           borderRight: '1px solid var(--line)',
         }}>
-          <CenterToolbar />
-          <div style={{ flex: 1, minHeight: 0 }}>
-            {s.centerView === 'score'
-              ? <RunScore onSeek={seekReplay} />
-              : <PlanCanvas />}
-          </div>
+          {s.centerView === 'missions' ? (
+            <MissionGallery />
+          ) : (
+            <>
+              <CenterToolbar />
+              <div style={{ flex: 1, minHeight: 0 }}>
+                {s.centerView === 'score'
+                  ? <RunScore onSeek={seekReplay} />
+                  : <PlanCanvas />}
+              </div>
+            </>
+          )}
           <NodeInspector />
         </main>
 
@@ -246,7 +253,7 @@ function CenterToolbar() {
       height: 42, flex: '0 0 42px', display: 'flex', alignItems: 'center', gap: 10,
       padding: '6px 12px', borderBottom: '1px solid var(--line)', background: 'var(--surface)',
     }}>
-      <span className="eyebrow" style={{ fontSize: 10.5 }}>Inspect the run</span>
+      <span className="eyebrow" style={{ fontSize: 10.5 }}>Run inspection</span>
       <div role="tablist" aria-label="Centre visualization" style={{
         display: 'flex', gap: 2, padding: 3, marginLeft: 'auto',
         borderRadius: 'var(--r-pill)', background: 'var(--surface-sunken)',
@@ -277,6 +284,8 @@ function CenterToolbar() {
 function Header({ onReplay }: { onReplay: () => void }) {
   const s = useStore()
   const pct = s.progress.total ? (s.progress.index / s.progress.total) * 100 : 0
+  const inspecting = s.centerView !== 'missions'
+  const inspectedEvents = s.mode === 'replay' ? s.progress.total : s.events.length
 
   return (
     <header style={{
@@ -340,6 +349,13 @@ function Header({ onReplay }: { onReplay: () => void }) {
             </span>
           </>
         )}
+        <button
+          onClick={() => s.setCenterView(inspecting ? 'missions' : 'score')}
+          aria-expanded={inspecting}
+          style={inspecting ? ghostBtn : inspectBtn}
+        >
+          {inspecting ? 'Close inspection' : `Inspect run${inspectedEvents ? ` · ${inspectedEvents}` : ''}`}
+        </button>
         <button onClick={() => s.setTheme(s.theme === 'light' ? 'dark' : 'light')} style={ghostBtn}>
           {s.theme === 'light' ? 'Dark' : 'Light'}
         </button>
@@ -362,4 +378,10 @@ const ghostBtn: React.CSSProperties = {
   fontSize: 12.5, fontWeight: 600, padding: '6px 12px', borderRadius: 'var(--r-input)',
   border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-600)',
   cursor: 'pointer', fontFamily: 'var(--font-body)',
+}
+const inspectBtn: React.CSSProperties = {
+  ...ghostBtn,
+  border: '1px solid var(--accent)',
+  background: 'var(--accent-weak)',
+  color: 'var(--accent)',
 }

@@ -42,12 +42,18 @@ export function Conversation({ onSend }: { onSend: (text: string) => void }) {
   const sending = useStore((s) => s.sending)
   const mode = useStore((s) => s.mode)
   const backendUp = useStore((s) => s.backendUp)
+  const composerFocusNonce = useStore((s) => s.composerFocusNonce)
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const latestTurnText = turns.at(-1)?.text
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [turns.length, turns[turns.length - 1]?.text])
+  }, [turns.length, latestTurnText])
+
+  useEffect(() => {
+    if (composerFocusNonce > 0) inputRef.current?.focus()
+  }, [composerFocusNonce])
 
   const liveBlocked = mode === 'live' && !backendUp
   const canSend = draft.trim().length > 0 && !sending && !liveBlocked
