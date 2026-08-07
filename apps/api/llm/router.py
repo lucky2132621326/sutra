@@ -504,10 +504,15 @@ def _mock_llm(system, messages, json_mode):
             return {"tool": "search_policy", "args": {"query": user_content[:50]},
                     "reasoning": "Answer must be grounded in the institutional regulations."}
         if "Services & Comms Agent" in system:
-            # Branch on the step's own task. Returning add_to_calendar for
-            # every services step meant the reminder step also booked a
-            # calendar entry, so create_reminder never ran at all.
-            if "remind" in user_content.lower():
+            # Branch on the step's own task line ONLY.
+            #
+            # Matching "remind" anywhere in the prompt caught the upstream
+            # results and the original goal too ("remind me an hour before"),
+            # so BOTH services steps took the reminder branch: the reminder was
+            # created twice and the calendar entry never at all — the mirror of
+            # the bug this branch was added to fix.
+            _task = user_content.split("Task:", 1)[-1].lower()
+            if "remind" in _task:
                 return {"tool": "create_reminder",
                         "args": {"student_id": ANANYA_ID,
                                   "message": "Placement Prep Workshop starts in an hour.",

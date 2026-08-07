@@ -5,6 +5,7 @@ import { Conversation } from './components/Conversation'
 import { NodeInspector } from './components/NodeInspector'
 import { PlanCanvas } from './components/dag/PlanCanvas'
 import { Citations, Memory, Telemetry, Timeline } from './components/Rail'
+import { RunScore } from './components/score/RunScore'
 import { useStore } from './state/store'
 import { ReplaySource, loadFixture } from './transport/replaySource'
 import { SSEClient, health, postApprove, postChat } from './transport/sseClient'
@@ -157,6 +158,16 @@ export default function App() {
       }
     }, [])
 
+  const seekReplay = useCallback((index: number) => {
+    const st = useStore.getState()
+    if (st.mode !== 'replay') return
+    // Scrubbing is an inspection gesture, so freeze playback at the requested
+    // frame instead of letting the next scheduled event immediately move it.
+    replayRef.current?.pause()
+    st.seekTo(index)
+    replayRef.current?.seek(index)
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
@@ -190,9 +201,15 @@ export default function App() {
 
         <main className="cockpit-canvas" style={{
           position: 'relative', minWidth: 0, overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
           borderRight: '1px solid var(--line)',
         }}>
-          <PlanCanvas />
+          <CenterToolbar />
+          <div style={{ flex: 1, minHeight: 0 }}>
+            {s.centerView === 'score'
+              ? <RunScore onSeek={seekReplay} />
+              : <PlanCanvas />}
+          </div>
           <NodeInspector />
         </main>
 
@@ -217,6 +234,42 @@ export default function App() {
       </div>
 
       <ApprovalModal onDecide={decide} />
+    </div>
+  )
+}
+
+function CenterToolbar() {
+  const view = useStore((s) => s.centerView)
+  const setView = useStore((s) => s.setCenterView)
+  return (
+    <div style={{
+      height: 42, flex: '0 0 42px', display: 'flex', alignItems: 'center', gap: 10,
+      padding: '6px 12px', borderBottom: '1px solid var(--line)', background: 'var(--surface)',
+    }}>
+      <span className="eyebrow" style={{ fontSize: 10.5 }}>Inspect the run</span>
+      <div role="tablist" aria-label="Centre visualization" style={{
+        display: 'flex', gap: 2, padding: 3, marginLeft: 'auto',
+        borderRadius: 'var(--r-pill)', background: 'var(--surface-sunken)',
+      }}>
+        {(['score', 'plan'] as const).map((option) => (
+          <button
+            key={option}
+            role="tab"
+            aria-selected={view === option}
+            onClick={() => setView(option)}
+            style={{
+              border: 'none', cursor: 'pointer', borderRadius: 'var(--r-pill)',
+              padding: '4px 12px', background: view === option ? 'var(--surface)' : 'transparent',
+              boxShadow: view === option ? 'var(--e1)' : 'none',
+              color: view === option ? 'var(--ink-900)' : 'var(--ink-400)',
+              fontSize: 11.5, fontWeight: 700, fontFamily: 'var(--font-body)',
+              textTransform: 'capitalize',
+            }}
+          >
+            {option === 'score' ? 'Run score' : 'Plan DAG'}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }
@@ -276,13 +329,17 @@ function Header({ onReplay }: { onReplay: () => void }) {
             New chat
           </button>
         )}
-        <span className="eyebrow tnum">{s.progress.index}/{s.progress.total}</span>
-        <span style={{ width: 110, height: 4, background: 'var(--surface-sunken)', borderRadius: 2 }}>
-          <span style={{
-            display: 'block', height: '100%', width: `${pct}%`,
-            background: 'var(--accent)', borderRadius: 2, transition: 'width var(--t-micro)',
-          }} />
-        </span>
+        {s.centerView === 'plan' && (
+          <>
+            <span className="eyebrow tnum">{s.progress.index}/{s.progress.total}</span>
+            <span style={{ width: 110, height: 4, background: 'var(--surface-sunken)', borderRadius: 2 }}>
+              <span style={{
+                display: 'block', height: '100%', width: `${pct}%`,
+                background: 'var(--accent)', borderRadius: 2, transition: 'width var(--t-micro)',
+              }} />
+            </span>
+          </>
+        )}
         <button onClick={() => s.setTheme(s.theme === 'light' ? 'dark' : 'light')} style={ghostBtn}>
           {s.theme === 'light' ? 'Dark' : 'Light'}
         </button>

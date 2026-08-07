@@ -25,12 +25,16 @@ export function ApprovalModal({ onDecide }: Props) {
   // In replay the decision is already in the recording; find it so the modal
   // can report it instead of pretending to ask.
   const replaying = mode === 'replay'
-  const recorded = replaying && activeId
+  const rawRecorded = replaying && activeId
     ? (events.find(
         (e) => e.type === 'approval.resolved'
           && (e.payload as { id?: string }).id === activeId,
       )?.payload as { decision?: string } | undefined)?.decision ?? null
     : null
+  const recorded: 'approve' | 'reject' | 'edit' | null =
+    rawRecorded === 'approve' || rawRecorded === 'reject' || rawRecorded === 'edit'
+      ? rawRecorded
+      : null
 
   const [args, setArgs] = useState<Record<string, unknown>>({})
   const [shake, setShake] = useState(false)
@@ -132,7 +136,9 @@ export function ApprovalModal({ onDecide }: Props) {
                         className="mono"
                         value={String(v)}
                         onChange={(ev) => setArgs({ ...args, [k]: ev.target.value })}
+                        readOnly={replaying}
                         style={{
+                          cursor: replaying ? 'default' : 'text',
                           width: '100%', fontSize: 12.5, padding: '6px 8px',
                           border: `1px solid ${changed ? 'var(--accent)' : 'var(--line)'}`,
                           borderRadius: 'var(--r-input)', background: 'var(--surface)',
@@ -148,7 +154,9 @@ export function ApprovalModal({ onDecide }: Props) {
           {/* Only existing keys are editable: the backend's _validated_edited_args
               rejects unknown fields loudly, so the UI must not invite them. */}
           <div style={{ fontSize: 12, color: 'var(--ink-400)', marginTop: 8 }}>
-            Values may be edited; new fields are rejected by the server.
+            {replaying
+              ? 'These are the arguments the recorded run actually used.'
+              : 'Values may be edited; new fields are rejected by the server.'}
           </div>
         </div>
 

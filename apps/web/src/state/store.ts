@@ -6,6 +6,7 @@ import type { TransportStatus } from '../transport/types'
 import { initialRunState, reduce, reduceAll, type RunState } from './runReducer'
 
 export type Mode = 'replay' | 'live'
+export type CenterView = 'score' | 'plan'
 
 /**
  * One exchange in the conversation. Deliberately NOT part of RunState: a
@@ -33,6 +34,7 @@ interface UIState {
   progress: { index: number; total: number }
   selectedStepId: string | null
   activeApprovalId: string | null
+  centerView: CenterView
   rail: 'timeline' | 'citations' | 'memory' | 'telemetry'
   /** Buffered so scrubbing can re-fold without re-fetching. */
   events: AgentEvent[]
@@ -69,6 +71,7 @@ interface Actions {
   setProgress: (index: number, total: number) => void
   selectStep: (id: string | null) => void
   setActiveApproval: (id: string | null) => void
+  setCenterView: (view: CenterView) => void
   setRail: (r: UIState['rail']) => void
   setBackendUp: (up: boolean) => void
   setLiveRunId: (id: string | null) => void
@@ -96,6 +99,7 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   progress: { index: 0, total: 0 },
   selectedStepId: null,
   activeApprovalId: null,
+  centerView: 'score',
   rail: 'timeline',
   events: [],
   run: initialRunState(),
@@ -109,8 +113,19 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   inspectorOpen: false,
   composerFocusNonce: 0,
 
-  ingest: (e) => set((s) => ({ run: reduce(s.run, e) })),
-  resetRun: () => set({ run: initialRunState(), selectedStepId: null, activeApprovalId: null }),
+  ingest: (e) => set((s) => ({
+    run: reduce(s.run, e),
+    // Replay already has the complete fixture buffered. Live runs grow this
+    // list event-by-event so the score can use the same scrub/time model.
+    events: s.mode === 'live' ? [...s.events, e] : s.events,
+    progress: s.mode === 'live'
+      ? { index: s.events.length + 1, total: s.events.length + 1 }
+      : s.progress,
+  })),
+  resetRun: () => set({
+    run: initialRunState(), events: [], progress: { index: 0, total: 0 },
+    selectedStepId: null, activeApprovalId: null,
+  }),
   loadEvents: (events) => set({ events, run: initialRunState(), progress: { index: 0, total: events.length } }),
 
   // Scrub = re-fold from zero. Cheap because the reducer is pure, and it keeps
@@ -133,6 +148,7 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   setProgress: (index, total) => set({ progress: { index, total } }),
   selectStep: (selectedStepId) => set({ selectedStepId }),
   setActiveApproval: (activeApprovalId) => set({ activeApprovalId }),
+  setCenterView: (centerView) => set({ centerView }),
   setRail: (rail) => set({ rail }),
   setBackendUp: (backendUp) => set({ backendUp }),
   setLiveRunId: (liveRunId) => set({ liveRunId }),

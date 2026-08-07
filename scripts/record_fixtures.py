@@ -48,7 +48,13 @@ def reseed():
     subprocess.run([sys.executable, str(ROOT / "scripts" / "seed.py")],
                    cwd=ROOT, check=True, capture_output=True)
     for stale in ("checkpoints.db",):
-        (ROOT / "data" / stale).unlink(missing_ok=True)
+        try:
+            (ROOT / "data" / stale).unlink(missing_ok=True)
+        except PermissionError:
+            # A running API server holds this open on Windows. Recording uses
+            # fresh thread ids anyway, so stale checkpoints are inert — no
+            # reason to make the developer stop their server to re-record.
+            pass
 
 
 async def record(name: str, *, goal: str, decision: str = "approve", chaos: str | None = None):

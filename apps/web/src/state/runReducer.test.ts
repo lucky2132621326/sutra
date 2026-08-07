@@ -100,11 +100,35 @@ describe('golden_conflict — the Academic Agent veto', () => {
     expect(evidence?.attendance_impact?.current_pct).toBeCloseTo(70.27, 1)
   })
 
-  it('records the executed write with the receipt the stream carried', () => {
+  it('records EVERY committed write, gated or not', () => {
+    // Was 1: the ledger only carried approval-gated actions, so "Actions taken"
+    // reported the registration and stayed silent about the calendar entry and
+    // reminder that followed — writes the student would find in their account
+    // with no record of who made them.
     const executed = state.actions.filter((a) => a.outcome === 'executed')
-    expect(executed).toHaveLength(1)
-    expect(executed[0].receiptId).toBeTruthy()
-    expect(executed[0].args.event_id).toBe('evt_workshop_sat')
+    expect(executed.length).toBeGreaterThanOrEqual(3)
+    expect(executed.every((a) => a.receiptId)).toBe(true)
+    expect(executed.map((a) => a.tool)).toEqual(
+      expect.arrayContaining(['register_event', 'add_to_calendar', 'create_reminder']),
+    )
+  })
+
+  it('every receipt on the wire appears in the ledger, and vice versa', () => {
+    const onWire = new Set(
+      events
+        .filter((e) => e.type === 'tool.result')
+        .map((e) => (e.payload as any))
+        .filter((p) => p.status === 'ok' && p.data?.receipt_id)
+        .map((p) => p.data.receipt_id as string),
+    )
+    const inLedger = new Set(state.actions.map((a) => a.receiptId).filter(Boolean) as string[])
+    expect(inLedger).toEqual(onWire)
+  })
+
+  it('the gated registration is the one that went through the human', () => {
+    const gated = state.actions.find((a) => a.tool === 'register_event')
+    expect(gated?.approvalId).toBeTruthy()
+    expect(gated?.args.event_id).toBe('evt_workshop_sat')
   })
 
   it('dedupes repeated approval.requested by payload id', () => {
