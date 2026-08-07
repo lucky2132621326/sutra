@@ -1,0 +1,117 @@
+/*
+ * Sūtra design tokens — light editorial, enterprise-ready.
+ *
+ * Every value is a CSS custom property so dark mode is a single selector
+ * override and no component ever branches on theme.
+ *
+ * Two constraints drove these choices, both from the demo being projected:
+ *  - Surfaces are WARM off-white, never pure #fff, which glares under a lamp.
+ *  - Semantic hues are deliberately DARK (#17683F, not #22c55e); bright
+ *    mid-tone greens wash out to grey on a projector.
+ */
+
+:root {
+  /* Surfaces */
+  --paper: #fbfaf7;
+  --surface: #ffffff;
+  --surface-sunken: #f4f2ed;
+  --surface-raised: #ffffff;
+
+  /* Ink */
+  --ink-900: #16181d;
+  --ink-600: #4a4f57;
+  --ink-400: #767c86;
+  --ink-300: #9aa0a9;
+
+  /* Hairlines — warm, not cool grey */
+  --line: #e4e0d8;
+  --line-strong: #cfcabe;
+
+  /* Accent — institutional indigo, not SaaS purple */
+  --accent: #2f3ab2;
+  --accent-hover: #262f96;
+  --accent-weak: #edeefa;
+  --accent-ink: #ffffff;
+
+  /* Semantic — dark enough to survive a projector */
+  --running: #1b63c4;      --running-bg: #e7f0fc;
+  --success: #17683f;      --success-bg: #e3f3ea;
+  --degraded: #96590a;     --degraded-bg: #fbeeda;
+  --danger: #a62020;       --danger-bg: #fbe7e7;
+  --approval: #5b3aa6;     --approval-bg: #f0eafb;
+  --denied: #8c2547;       --denied-bg: #fbe9ef;
+  --pending: #9aa0a9;      --pending-bg: #f4f2ed;
+
+  /* Agent identity — chips and dots ONLY, never node fills, so they never
+     compete with the semantic status rail. */
+  --agent-academic: #1f5e8c;
+  --agent-placement: #5b3aa6;
+  --agent-events: #0f766e;
+  --agent-knowledge: #8a5b12;
+  --agent-services: #8c2547;
+  --agent-orchestration: #4a4f57;
+
+  /* Type */
+  --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+  --font-body: -apple-system, 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'JetBrains Mono', ui-monospace, Consolas, monospace;
+
+  /* Spacing — 4px base */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+
+  /* Radii — one consistent 10, not a 6/8 mix */
+  --r-card: 10px; --r-chip: 8px; --r-input: 6px; --r-pill: 999px;
+
+  /* Elevation — restrained; heavy shadows look cheap projected */
+  --e1: 0 1px 2px rgb(22 24 29 / 0.05), 0 1px 1px rgb(22 24 29 / 0.04);
+  --e2: 0 8px 24px -8px rgb(22 24 29 / 0.14), 0 2px 6px rgb(22 24 29 / 0.06);
+  --e3: 0 24px 64px -16px rgb(22 24 29 / 0.26);
+  --focus: 0 0 0 3px var(--accent-weak), 0 0 0 1.5px var(--accent);
+
+  /* Motion */
+  --t-micro: 120ms cubic-bezier(0.2, 0, 0.38, 0.9);
+  --t-state: 220ms cubic-bezier(0.2, 0, 0.38, 0.9);
+  --t-layout: 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  --t-enter: 260ms cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+
+:root[data-theme='dark'] {
+  --paper: #12141a;
+  --surface: #191c24;
+  --surface-sunken: #14161d;
+  --surface-raised: #1f232c;
+
+  --ink-900: #edeff3;
+  --ink-600: #b3bac5;
+  --ink-400: #838b98;
+  --ink-300: #646c7a;
+
+  --line: #2a2f3a;
+  --line-strong: #3a4150;
+
+  --accent: #8b93f0;
+  --accent-hover: #a2a9f5;
+  --accent-weak: #23273f;
+  --accent-ink: #12141a;
+
+  /* Lifted ~2 steps so they hold up on a dark surface */
+  --running: #6fa8f5;      --running-bg: #17263c;
+  --success: #57c78d;      --success-bg: #12291d;
+  --degraded: #e0a850;     --degraded-bg: #2e2413;
+  --danger: #ef7a7a;       --danger-bg: #2e1717;
+  --approval: #b295ee;     --approval-bg: #241b38;
+  --denied: #e8859f;       --denied-bg: #2e1620;
+  --pending: #646c7a;      --pending-bg: #1c1f27;
+
+  --agent-academic: #6fa8f5;
+  --agent-placement: #b295ee;
+  --agent-events: #4fc4b4;
+  --agent-knowledge: #d9a94e;
+  --agent-services: #e8859f;
+  --agent-orchestration: #b3bac5;
+
+  --e1: 0 1px 2px rgb(0 0 0 / 0.4);
+  --e2: 0 8px 24px -8px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.4);
+  --e3: 0 24px 64px -16px rgb(0 0 0 / 0.7);
+}

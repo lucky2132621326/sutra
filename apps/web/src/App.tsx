@@ -1,0 +1,308 @@
+import { useCallback, useEffect, useRef } from 'react'
+
+import { ApprovalModal } from './components/ApprovalModal'
+import { Conversation } from './components/Conversation'
+import { NodeInspector } from './components/NodeInspector'
+import { PlanCanvas } from './components/dag/PlanCanvas'
+import { Citations, Memory, Telemetry, Timeline } from './components/Rail'
+import { useStore } from './state/store'
+import { ReplaySource, loadFixture } from './transport/replaySource'
+import { SSEClient, health, postApprove, postChat } from './transport/sseClient'
+
+const FIXTURES = [
+  { file: 'golden_conflict.jsonl', label: 'Conflict & arbitration' },
+  { file: 'golden_clean.jsonl', label: 'Read-only question' },
+  { file: 'golden_chaos.jsonl', label: 'Failure recovery' },
+  { file: 'golden_reject.jsonl', label: 'Human rejects' },
+]
+
+const STUDENT = '1602-23-733-042'
+
+export default function App() {
+  const s = useStore()
+  const replayRef = useRef<ReplaySource | null>(null)
+  const sseRef = useRef<SSEClient | null>(null)
+
+  useEffect(() => {
+    // Precedence: what this user last chose here, then whatever the host page
+    // already stamped on <html> (embedding hosts set data-theme to match the
+    // viewer), then the OS preference. Defaulting straight to 'light' meant a
+    // dark-mode viewer got a white flash and a toggle that appeared stuck.
+    const saved = localStorage.getItem('sutra-theme') as 'light' | 'dark' | null
+    const stamped = document.documentElement.getAttribute('data-theme') as 'light' | 'dark' | null
+    const os = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    s.setTheme(saved ?? stamped ?? os)
+
+    // An embedding host may flip data-theme at any time (its own theme
+    // toggle). Mirror that into our state so the header button doesn't drift
+    // out of sync with the page it is describing.
+    const el = document.documentElement
+    const observer = new MutationObserver(() => {
+      const now = el.getAttribute('data-theme')
+      if ((now === 'light' || now === 'dark') && now !== useStore.getState().theme) {
+        useStore.getState().setTheme(now)
+      }
+    })
+    observer.observe(el, { attributes: true, attributeFilter: ['data-theme'] })
+    return () => observer.disconnect()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    let alive = true
+    const poll = async () => { if (alive) useStore.getState().setBackendUp(await health()) }
+    void poll()
+    const t = setInterval(poll, 5000)
+    return () => { alive = false; clearInterval(t) }
+  }, [])
+
+  const stopAll = () => { replayRef.current?.stop(); sseRef.current?.stop() }
+
+  const startReplay = useCallback(async (file: string) => {
+    stopAll()
+    const st = useStore.getState()
+    st.resetRun()
+    const events = await loadFixture(file)
+    st.loadEvents(events)
+
+    // Seed the transcript from the run itself, so replay and live produce the
+    // same shape of conversation rather than two different-looking modes.
+    const planned = events.find((e) => e.type === 'plan.created')
+    const goal = (planned?.payload as { goal?: string } | undefined)?.goal
+    st.addTurn({ role: 'user', text: goal || 'Recorded run', runId: st.run.runId })
+    st.addTurn({ role: 'assistant', text: '', runId: st.run.runId, pending: true })
+
+    const src = new ReplaySource(
+      events,
+      {
+        onEvent: (e) => useStore.getState().ingest(e),
+        onStatus: (status) => useStore.getState().setStatus(status),
+        onProgress: (i, total) => useStore.getState().setProgress(i, total),
+        onAwaitApproval: (id) => useStore.getState().setActiveApproval(id),
+      },
+      useStore.getState().pacing,
+      (id) => useStore.getState().run.resolvedApprovalIds.includes(id),
+    )
+    src.setSpeed(useStore.getState().speed)
+    replayRef.current = src
+    src.start()
+  }, [])
+
+  /** The whole point of the composer: any question, live, no hardcoding. */
+  const send = useCallback(async (text: string) => {
+    stopAll()
+    const st = useStore.getState()
+    st.setMode('live')
+    st.setSending(true)
+    st.resetRun()
+    st.addTurn({ role: 'user', text, runId: null })
+    st.addTurn({ role: 'assistant', text: '', runId: null, pending: true })
+
+    try {
+      const { runId, threadId } = await postChat(text, STUDENT, 'student', st.threadId)
+      useStore.getState().setLiveRunId(runId)
+      useStore.getState().setThreadId(threadId)
+
+      const client = new SSEClient(runId, {
+        onEvent: (e) => {
+          const store = useStore.getState()
+          store.ingest(e)
+          if (e.type === 'approval.requested') {
+            const id = String((e.payload as { id?: string }).id ?? '')
+            if (id && !store.run.resolvedApprovalIds.includes(id)) store.setActiveApproval(id)
+          }
+          if (e.type === 'run.finished') {
+            const st2 = useStore.getState()
+            const pending = st2.turns.filter((t) => t.role === 'assistant').at(-1)
+            if (pending) st2.resolveTurn(pending.id, st2.run.answer ?? '')
+            st2.setSending(false)
+          }
+        },
+        onStatus: (status) => {
+          useStore.getState().setStatus(status)
+          if (status === 'closed' || status === 'error') useStore.getState().setSending(false)
+        },
+      })
+      sseRef.current = client
+      client.start()
+    } catch {
+      const st2 = useStore.getState()
+      st2.setStatus('error')
+      st2.setSending(false)
+      const pending = st2.turns.filter((t) => t.role === 'assistant').at(-1)
+      if (pending) {
+        st2.resolveTurn(
+          pending.id,
+          "I couldn't reach the orchestrator, so nothing ran. Start it with " +
+          '"python -m uvicorn apps.api.main:app --port 8000", or switch to ' +
+          'Replay to show a recorded run.',
+        )
+      }
+    }
+  }, [])
+
+  const decide = useCallback(
+    async (id: string, decision: 'approve' | 'reject' | 'edit', edited: Record<string, unknown> | null) => {
+      const st = useStore.getState()
+      st.setApprovalInFlight(true)
+      st.setActiveApproval(null)
+      try {
+        if (st.mode === 'live' && st.liveRunId) {
+          await postApprove(st.liveRunId, st.threadId, id, decision, edited)
+        } else {
+          replayRef.current?.releaseHold()
+        }
+      } finally {
+        useStore.getState().setApprovalInFlight(false)
+      }
+    }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      if (e.code === 'Space') {
+        e.preventDefault()
+        const st = useStore.getState()
+        if (st.status === 'streaming') replayRef.current?.pause()
+        else replayRef.current?.resume()
+      }
+      if (e.key === 'ArrowRight') replayRef.current?.stepForward()
+      if (e.key === 'ArrowLeft') replayRef.current?.stepBack()
+      if (e.key === 'Escape') useStore.getState().closeInspector()
+      if (e.key.toLowerCase() === 'd') {
+        const st = useStore.getState()
+        st.setTheme(st.theme === 'light' ? 'dark' : 'light')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const RailBody = { timeline: Timeline, citations: Citations, memory: Memory, telemetry: Telemetry }[s.rail]
+
+  return (
+    <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--paper)' }}>
+      <Header onReplay={() => void startReplay(s.fixture)} />
+
+      <div className="cockpit" style={{ flex: 1, minHeight: 0 }}>
+        <Conversation onSend={(t) => void send(t)} />
+
+        <main className="cockpit-canvas" style={{
+          position: 'relative', minWidth: 0, overflow: 'hidden',
+          borderRight: '1px solid var(--line)',
+        }}>
+          <PlanCanvas />
+          <NodeInspector />
+        </main>
+
+        <aside className="cockpit-rail" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, minWidth: 0, background: 'var(--surface)' }}>
+          <div role="tablist" style={{ display: 'flex', borderBottom: '1px solid var(--line)' }}>
+            {(['timeline', 'citations', 'memory', 'telemetry'] as const).map((r) => (
+              <button key={r} role="tab" aria-selected={s.rail === r} onClick={() => s.setRail(r)}
+                style={{
+                  flex: 1, padding: '11px 6px', border: 'none', cursor: 'pointer',
+                  background: s.rail === r ? 'var(--surface)' : 'var(--surface-sunken)',
+                  borderBottom: s.rail === r ? '2px solid var(--accent)' : '2px solid transparent',
+                  color: s.rail === r ? 'var(--ink-900)' : 'var(--ink-400)',
+                  fontSize: 11.5, fontWeight: 700, letterSpacing: '0.06em',
+                  textTransform: 'uppercase', fontFamily: 'var(--font-body)',
+                }}>
+                {r}
+              </button>
+            ))}
+          </div>
+          <div style={{ flex: 1, minHeight: 0 }}><RailBody /></div>
+        </aside>
+      </div>
+
+      <ApprovalModal onDecide={decide} />
+    </div>
+  )
+}
+
+function Header({ onReplay }: { onReplay: () => void }) {
+  const s = useStore()
+  const pct = s.progress.total ? (s.progress.index / s.progress.total) * 100 : 0
+
+  return (
+    <header style={{
+      borderBottom: '2px solid var(--line)', background: 'var(--surface)',
+      padding: '10px 18px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10 }}>
+        <span className="font-display" style={{ fontSize: 22 }}>Sūtra</span>
+        <span className="eyebrow">Smart Campus Orchestrator</span>
+      </div>
+
+      <div style={{ display: 'flex', gap: 2, background: 'var(--surface-sunken)', borderRadius: 'var(--r-pill)', padding: 3 }}>
+        {(['replay', 'live'] as const).map((m) => (
+          <button key={m} onClick={() => s.setMode(m)}
+            style={{
+              padding: '5px 14px', borderRadius: 'var(--r-pill)', border: 'none', cursor: 'pointer',
+              background: s.mode === m ? 'var(--surface)' : 'transparent',
+              boxShadow: s.mode === m ? 'var(--e1)' : 'none',
+              fontSize: 12.5, fontWeight: 700, color: s.mode === m ? 'var(--ink-900)' : 'var(--ink-400)',
+              fontFamily: 'var(--font-body)', textTransform: 'capitalize',
+            }}>{m}</button>
+        ))}
+      </div>
+
+      {s.mode === 'replay' ? (
+        <>
+          <select value={s.fixture} onChange={(e) => s.setFixture(e.target.value)} style={selectStyle}
+            aria-label="Recorded run">
+            {FIXTURES.map((f) => <option key={f.file} value={f.file}>{f.label}</option>)}
+          </select>
+          <button onClick={onReplay} style={primaryBtn}>Play run</button>
+          <select value={s.speed} onChange={(e) => s.setSpeed(Number(e.target.value))} style={selectStyle}
+            aria-label="Replay speed">
+            {[0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}×</option>)}
+          </select>
+        </>
+      ) : (
+        <span style={{
+          display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5,
+          color: s.backendUp ? 'var(--success)' : 'var(--danger)',
+        }}>
+          <span style={{ width: 8, height: 8, borderRadius: 999, background: 'currentColor' }} />
+          {s.backendUp ? 'backend up' : 'backend down'}
+        </span>
+      )}
+
+      <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+        {s.turns.length > 0 && (
+          <button onClick={() => { s.clearConversation(); s.resetRun() }} style={ghostBtn}>
+            New chat
+          </button>
+        )}
+        <span className="eyebrow tnum">{s.progress.index}/{s.progress.total}</span>
+        <span style={{ width: 110, height: 4, background: 'var(--surface-sunken)', borderRadius: 2 }}>
+          <span style={{
+            display: 'block', height: '100%', width: `${pct}%`,
+            background: 'var(--accent)', borderRadius: 2, transition: 'width var(--t-micro)',
+          }} />
+        </span>
+        <button onClick={() => s.setTheme(s.theme === 'light' ? 'dark' : 'light')} style={ghostBtn}>
+          {s.theme === 'light' ? 'Dark' : 'Light'}
+        </button>
+      </div>
+    </header>
+  )
+}
+
+const selectStyle: React.CSSProperties = {
+  fontSize: 12.5, padding: '6px 10px', borderRadius: 'var(--r-input)',
+  border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--ink-900)',
+  fontFamily: 'var(--font-body)',
+}
+const primaryBtn: React.CSSProperties = {
+  fontSize: 12.5, fontWeight: 700, padding: '7px 16px', borderRadius: 'var(--r-input)',
+  border: '1px solid var(--accent)', background: 'var(--accent)', color: 'var(--accent-ink)',
+  cursor: 'pointer', fontFamily: 'var(--font-body)',
+}
+const ghostBtn: React.CSSProperties = {
+  fontSize: 12.5, fontWeight: 600, padding: '6px 12px', borderRadius: 'var(--r-input)',
+  border: '1px solid var(--line)', background: 'transparent', color: 'var(--ink-600)',
+  cursor: 'pointer', fontFamily: 'var(--font-body)',
+}

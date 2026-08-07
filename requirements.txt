@@ -1,0 +1,17 @@
+anthropic
+google-genai
+openai
+python-dotenv
+chromadb
+sentence-transformers
+pypdf
+pandas
+ollama
+groq
+langgraph
+langgraph-checkpoint-sqlite
+sqlalchemy
+pytest
+fastapi
+uvicorn[standard]
+pytest-asyncio

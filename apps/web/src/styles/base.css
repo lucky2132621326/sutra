@@ -1,0 +1,143 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* Expose tokens to Tailwind utilities (v4 CSS-first config). */
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-sunken: var(--surface-sunken);
+  --color-ink: var(--ink-900);
+  --color-ink-600: var(--ink-600);
+  --color-ink-400: var(--ink-400);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-running: var(--running);
+  --color-success: var(--success);
+  --color-degraded: var(--degraded);
+  --color-danger: var(--danger);
+  --color-approval: var(--approval);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+  --font-mono: var(--font-mono);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink-900);
+  font-family: var(--font-body);
+  /* Projector-first: roughly one step up from a typical web app. */
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers must not jitter as they tick — this alone makes the UI read as an
+   instrument rather than a website. */
+.tnum, time, .latency, .metric { font-variant-numeric: tabular-nums; }
+
+.font-display { font-family: var(--font-display); font-weight: 600; letter-spacing: -0.015em; }
+.mono { font-family: var(--font-mono); }
+
+/* The editorial signature: uppercase, wide-tracked micro-labels. */
+.eyebrow {
+  font-size: 12.5px;
+  line-height: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-400);
+  font-weight: 600;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card);
+  box-shadow: var(--e1);
+}
+
+:focus-visible { outline: none; box-shadow: var(--focus); border-radius: var(--r-input); }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: var(--r-pill); border: 3px solid var(--paper); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 120ms !important;
+  }
+}
+
+/* Shared, in-phase pulse: concurrently-running nodes must breathe TOGETHER.
+   Independent spinners read as "several things loading"; one synchronized
+   rhythm reads as "these are running at the same time". */
+@keyframes sutra-pulse { 0%,100% { opacity: .35 } 50% { opacity: 1 } }
+.pulse-dot {
+  width: 7px; height: 7px; border-radius: 999px;
+  animation: sutra-pulse 1600ms ease-in-out infinite;
+}
+@keyframes sutra-shake {
+  0%,100% { transform: translateX(0) } 25% { transform: translateX(-5px) }
+  75% { transform: translateX(5px) }
+}
+.shake { animation: sutra-shake 400ms ease-in-out; }
+
+/*
+ * The cockpit grid.
+ *
+ * Written as CSS rather than inline styles specifically so the columns can
+ * respond. With fixed side panes and a `1fr` centre, the centre resolved to
+ * literally `0px` once the window was narrower than the two sides combined —
+ * and the plan graph, having nowhere to go, spilled out under both panes and
+ * appeared clipped on either side. The centre is the subject of the page, so
+ * it gets a hard floor and the side panes yield first; below the point where
+ * that stops being possible, the rail steps aside entirely.
+ */
+.cockpit {
+  display: grid;
+  grid-template-columns: clamp(300px, 24%, 420px) minmax(460px, 1fr) clamp(300px, 22%, 380px);
+  min-height: 0;
+}
+
+@media (max-width: 1180px) {
+  /* Not enough room for three; the timeline is the most sacrificial, since
+     everything it reports is also legible in the graph and the answer. */
+  .cockpit { grid-template-columns: clamp(280px, 32%, 400px) minmax(380px, 1fr); }
+  .cockpit > .cockpit-rail { display: none; }
+}
+
+@media (max-width: 820px) {
+  .cockpit { grid-template-columns: minmax(0, 1fr); }
+  .cockpit > .cockpit-canvas { display: none; }
+}
+
+/* Only animate repositioning AFTER first paint, otherwise every node slides
+   in from (0,0) on mount. */
+.dag-ready .react-flow__node { transition: transform var(--t-layout); }
+.react-flow__attribution { display: none; }
+
+/* The evidence card is the argument, so it arrives rather than appears — a
+   short rise that draws the eye without being a party trick. Reduced-motion
+   users get the same card, instantly. */
+@keyframes sutra-rise {
+  from { opacity: 0; transform: translateY(8px) }
+  to   { opacity: 1; transform: none }
+}
+.evidence-card { animation: sutra-rise var(--t-enter) both; }
+
+@keyframes sutra-slide-in {
+  from { transform: translateX(16px); opacity: 0 }
+  to   { transform: none; opacity: 1 }
+}
+.inspector { animation: sutra-slide-in var(--t-state) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .evidence-card, .inspector { animation: none; }
+}

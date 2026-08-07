@@ -1,0 +1,17 @@
+AgentX Hackathon Team Notes
+
+Our team has three members. The team lead builds the AI engine in Python.
+Teammate 2 builds the React frontend with Vite and Tailwind, deployed on Vercel.
+Teammate 3 builds the FastAPI backend with SQLite for history, deployed on Render.
+
+The hackathon takes place on 24-25 July 2026. The problem statement is revealed
+at 9:40 AM on the first day. Our goal is to adapt the skeleton to any domain in
+under 2 hours.
+
+The AI stack uses a provider-agnostic LLM wrapper with Gemini as the primary
+provider. RAG is handled by ChromaDB with local sentence-transformers embeddings,
+so document embedding costs nothing.
+
+Checkpoint 1 is Sunday 19 July: engine.py working locally.
+Checkpoint 2 is Tuesday 21 July: full integration deployed.
+Checkpoint 3 is Wednesday 22 July: timed dry-run with a mock problem.

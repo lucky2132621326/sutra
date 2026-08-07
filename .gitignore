@@ -1,0 +1,55 @@
+# Secrets and local environment configuration
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+
+# Python caches and virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Node dependencies and build output
+node_modules/
+dist/
+dist-ssr/
+dist-standalone/
+coverage/
+*.local
+
+# Runtime databases, vector stores, and checkpoints
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+chroma_db/
+
+# Generated run and test fixtures; retain curated golden demonstrations
+fixtures/*.jsonl
+!fixtures/golden_clean.jsonl
+!fixtures/golden_conflict.jsonl
+!fixtures/golden_chaos.jsonl
+!fixtures/golden_reject.jsonl
+
+# Logs and operating-system/editor files
+*.log
+logs/
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
