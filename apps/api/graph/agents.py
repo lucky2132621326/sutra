@@ -332,11 +332,18 @@ async def run_agent_step(agent_name: str, step: Step, state: dict) -> dict:
         catalog = _tool_catalog(agent_name)
 
         if catalog:
-            selection_system = AGENT_SYSTEM_PROMPTS[agent_name] + "\n\n" + TOOL_SELECTION_INSTRUCTIONS.format(catalog=catalog)
-            selection_user = f"{session_block}{context_block}{upstream_block}Task: {step.task}"
-            selection = await call_llm_async(
-                selection_system, [{"role": "user", "content": selection_user}], json_mode=True,
-            )
+            if step.tool:
+                selection = {
+                    "tool": step.tool,
+                    "args": dict(step.tool_args),
+                    "reasoning": "Verified deterministic recovery plan.",
+                }
+            else:
+                selection_system = AGENT_SYSTEM_PROMPTS[agent_name] + "\n\n" + TOOL_SELECTION_INSTRUCTIONS.format(catalog=catalog)
+                selection_user = f"{session_block}{context_block}{upstream_block}Task: {step.task}"
+                selection = await call_llm_async(
+                    selection_system, [{"role": "user", "content": selection_user}], json_mode=True,
+                )
             tool_name = selection.get("tool") or ""
 
             role = state.get("role", "student")

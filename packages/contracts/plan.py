@@ -21,6 +21,11 @@ class Step(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     expected_output: str = ""
     requires_approval: bool = False
+    # Deterministic recovery plans can pin a verified tool invocation instead
+    # of asking a failing model to rediscover it. Normal LLM plans leave these
+    # empty and continue through tool selection as before.
+    tool: str | None = None
+    tool_args: dict = Field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return self.model_dump()
