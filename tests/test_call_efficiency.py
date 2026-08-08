@@ -79,8 +79,12 @@ def test_no_tool_result_still_uses_the_llm():
     assert _can_skip_compose("placement", {}, "ok") is False
 
 
-def test_errored_tool_still_uses_the_llm():
-    assert _can_skip_compose("placement", {"error": "boom"}, "error") is False
+def test_errored_tool_finishes_without_a_second_llm_call():
+    data = {"error": "missing required argument(s): company_id"}
+    assert _can_skip_compose("placement", data, "error") is True
+    text = _describe_tool_result("check_placement_eligibility", data, "error")
+    assert "couldn't complete" in text.lower()
+    assert "company_id" in text
 
 
 # --- End-to-end call count ---

@@ -208,7 +208,7 @@ def test_attendance_accepts_a_course_name_not_just_an_id():
     from apps.api.tools.academic import compute_attendance_eligibility
 
     by_id = compute_attendance_eligibility(ANANYA, "CS301L")
-    for alias in ("DBMS Lab", "dbms lab", "DBMS"):
+    for alias in ("DBMS Lab", "dbms lab", "DBMS", "cs301l"):
         assert compute_attendance_eligibility(ANANYA, alias).course_id == by_id.course_id
 
 

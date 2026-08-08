@@ -14,7 +14,7 @@ import uuid
 import pydantic
 
 from apps.api.bus import bus
-from apps.api.llm.router import call_llm
+from apps.api.llm.router import call_llm_async
 from apps.api.tools.exceptions import ToolError
 from apps.api.tools.knowledge import search_policy
 from apps.api.tools.models import PendingAction
@@ -119,13 +119,14 @@ Available tools for you:
 def _can_skip_compose(agent_name: str, tool_data: dict, tool_status: str) -> bool:
     """Whether the step's write-up can be produced without an LLM call.
 
-    Requires a successful structured tool result. The knowledge agent is
-    excluded: its value IS reading prose out of retrieved clauses, which is
-    genuine language work rather than restating a typed record.
+    Structured successes and deterministic tool errors need no second model
+    call. The knowledge agent is excluded when it has clauses: its value IS
+    reading prose out of those clauses, which is genuine language work rather
+    than restating a typed record.
     """
     if agent_name == "knowledge":
         return False
-    return bool(tool_data) and tool_status in ("ok", "degraded")
+    return bool(tool_data) and tool_status in ("ok", "degraded", "error")
 
 
 def _describe_tool_result(tool_name: str, tool_data: dict, tool_status: str) -> str:
@@ -136,6 +137,9 @@ def _describe_tool_result(tool_name: str, tool_data: dict, tool_status: str) -> 
     reading, and "The student meets the eligibility criteria" is a sentence
     about them rather than to them, which reads like a case file.
     """
+    if tool_status == "error":
+        return f"I couldn't complete {tool_name or 'this lookup'}: {tool_data.get('error', 'the tool failed')}."
+
     if tool_status == "degraded":
         reason = tool_data.get("degradation_reason", "the source was unavailable")
         return f"I couldn't reach live data for {tool_name}, so this is from cache: {reason}"
@@ -245,6 +249,7 @@ async def run_agent_step(agent_name: str, step: Step, state: dict) -> dict:
     tool_name = ""
     tool_data: dict = {}
     retrieved: list[dict] = []
+    knowledge_abstained = False
 
     try:
         context_block = ""
@@ -284,6 +289,7 @@ async def run_agent_step(agent_name: str, step: Step, state: dict) -> dict:
                     for i, c in enumerate(citations)
                 ) + "\n\n"
             elif result.no_relevant_context:
+                knowledge_abstained = True
                 context_block = (
                     "No institutional document was sufficiently relevant to this question. "
                     "Say so plainly rather than guessing.\n\n"
@@ -302,14 +308,34 @@ async def run_agent_step(agent_name: str, step: Step, state: dict) -> dict:
             node_id=step.id, agent=agent_name, payload={},
         ))
 
+        # An abstention is already the truthful final result. Asking another
+        # model to improvise after retrieval found no relevant clause both
+        # wastes a provider call and creates a hallucination opportunity. More
+        # importantly, this was one of the paths that could strand the run in
+        # "Executing" when the fallback model was slow.
+        if knowledge_abstained:
+            message = "I couldn't find a sufficiently relevant institutional policy for this question."
+            result = {
+                "step_id": step.id, "agent": agent_name, "output": message,
+                "reasoning": "Policy retrieval abstained rather than guessing.",
+                "data": {"abstained": True}, "status": "degraded",
+            }
+            latency_ms = (time.time() - start) * 1000
+            await bus.emit(AgentEvent(
+                id=uuid.uuid4().hex[:8], run_id=run_id, ts=time.time(), type=EventType.NODE_FINISHED,
+                node_id=step.id, agent=agent_name,
+                payload={"status": "degraded"}, latency_ms=latency_ms,
+            ))
+            return result
+
         tool_status = "ok"
         catalog = _tool_catalog(agent_name)
 
         if catalog:
             selection_system = AGENT_SYSTEM_PROMPTS[agent_name] + "\n\n" + TOOL_SELECTION_INSTRUCTIONS.format(catalog=catalog)
             selection_user = f"{session_block}{context_block}{upstream_block}Task: {step.task}"
-            selection = await asyncio.to_thread(
-                call_llm, selection_system, [{"role": "user", "content": selection_user}], json_mode=True,
+            selection = await call_llm_async(
+                selection_system, [{"role": "user", "content": selection_user}], json_mode=True,
             )
             tool_name = selection.get("tool") or ""
 
@@ -423,16 +449,20 @@ async def run_agent_step(agent_name: str, step: Step, state: dict) -> dict:
             result = {
                 "step_id": step.id, "agent": agent_name,
                 "output": _describe_tool_result(tool_name, tool_data, tool_status),
-                "reasoning": f"Read directly from {tool_name}; no interpretation applied.",
+                "reasoning": (
+                    f"{tool_name} returned a deterministic error; no model interpretation applied."
+                    if tool_status == "error"
+                    else f"Read directly from {tool_name}; no interpretation applied."
+                ),
                 "data": {"tool_result": tool_data},
-                "status": "degraded" if tool_status == "degraded" else "ok",
+                "status": tool_status,
             }
         else:
             compose_system = AGENT_SYSTEM_PROMPTS[agent_name] + "\n\n" + QUERY_JSON_INSTRUCTIONS
             tool_block = f"Tool result (ground truth — use this, don't invent numbers): {tool_data}\n\n" if tool_data else ""
             compose_user = f"{session_block}{context_block}{upstream_block}{tool_block}Task: {step.task}"
-            parsed = await asyncio.to_thread(
-                call_llm, compose_system, [{"role": "user", "content": compose_user}], json_mode=True,
+            parsed = await call_llm_async(
+                compose_system, [{"role": "user", "content": compose_user}], json_mode=True,
             )
 
             result = {

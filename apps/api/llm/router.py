@@ -17,6 +17,7 @@ MOCK_LLM=1 short-circuits everything above with fast, deterministic,
 zero-network responses — see _mock_llm — for testing graph/dispatch
 mechanics without spending real provider quota.
 """
+import asyncio
 import os
 import json
 from pathlib import Path
@@ -39,6 +40,11 @@ ANANYA_ID = "1602-23-733-042"
 # call — long enough that falling back to it was worse than the failure it was
 # meant to cover. A bounded wait keeps the fallback chain useful.
 PROVIDER_TIMEOUT_S = float(os.environ.get("LLM_TIMEOUT_S", "25"))
+# A provider chain can contain several individually-bounded clients. Without a
+# whole-call deadline those bounds add up (Groq -> Ollama -> Gemini), so one
+# agent can still sit inside fallback for minutes and prevent node.finished.
+# The async graph always enters call_llm through call_llm_async below.
+LLM_CALL_TIMEOUT_S = float(os.environ.get("LLM_CALL_TIMEOUT_S", "20"))
 
 
 def _force_ipv4() -> None:
@@ -220,7 +226,7 @@ def _call_ollama(system, messages, json_mode):
         kwargs["format"] = "json"
 
     try:
-        local_client = ollama.Client()  # defaults to http://localhost:11434
+        local_client = ollama.Client(timeout=PROVIDER_TIMEOUT_S)  # defaults to http://localhost:11434
         response = local_client.chat(model=OLLAMA_LOCAL_MODEL, messages=[{"role": "system", "content": system}] + messages, **kwargs)
         text = response["message"]["content"]
         return _parse_json_response(text) if json_mode else text
@@ -228,7 +234,10 @@ def _call_ollama(system, messages, json_mode):
         api_key = os.environ.get("OLLAMA_API_KEY")
         if not api_key:
             raise
-        cloud_client = ollama.Client(host="https://ollama.com", headers={"Authorization": f"Bearer {api_key}"})
+        cloud_client = ollama.Client(
+            host="https://ollama.com", headers={"Authorization": f"Bearer {api_key}"},
+            timeout=PROVIDER_TIMEOUT_S,
+        )
         response = cloud_client.chat(model=OLLAMA_CLOUD_MODEL, messages=[{"role": "system", "content": system}] + messages, **kwargs)
         text = response["message"]["content"]
         return _parse_json_response(text) if json_mode else text
@@ -237,7 +246,9 @@ def _call_ollama(system, messages, json_mode):
 def _call_anthropic(system, messages, json_mode):
     import anthropic
 
-    client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+    client = anthropic.Anthropic(
+        api_key=os.environ["ANTHROPIC_API_KEY"], timeout=PROVIDER_TIMEOUT_S, max_retries=0,
+    )
 
     effective_system = system
     if json_mode:
@@ -256,7 +267,9 @@ def _call_anthropic(system, messages, json_mode):
 def _call_openai(system, messages, json_mode):
     from openai import OpenAI
 
-    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    client = OpenAI(
+        api_key=os.environ["OPENAI_API_KEY"], timeout=PROVIDER_TIMEOUT_S, max_retries=0,
+    )
 
     kwargs = {}
     if json_mode:
@@ -324,7 +337,17 @@ def _mock_llm(system, messages, json_mode):
         # Re-proposing Thursday would be the planner ignoring the veto — and
         # would re-register the same event, draining its seats. Route to the
         # Saturday batch, which is what the arbitration actually concluded.
-        if "SCHEDULE_COLLISION" in user_content or "Saturday batch" in user_content:
+        # Scope the match to the explicit revision block. Recalled memory and
+        # upstream results can legitimately mention an earlier Saturday run;
+        # treating that as fresh arbiter feedback made a new hero run silently
+        # skip Thursday, so there was no conflict or visible collaboration.
+        revision_marker = "Previous plan needs revision. Feedback:"
+        revision_feedback = (
+            user_content.split(revision_marker, 1)[1]
+            if revision_marker in user_content
+            else ""
+        )
+        if "SCHEDULE_COLLISION" in revision_feedback or "Saturday batch" in revision_feedback:
             return {
                 "goal": "Register for the Saturday batch of the Placement Prep Workshop, "
                         "avoiding the DBMS Lab clash.",
@@ -488,8 +511,13 @@ def _mock_llm(system, messages, json_mode):
             return {"tool": "check_placement_eligibility", "args": {"student_id": ANANYA_ID, "company_id": "google"},
                     "reasoning": "Eligibility is a deterministic rules check against the company's criteria."}
         if "Events Agent" in system:
-            if "register" in user_content.lower():
-                saturday = "saturday" in user_content.lower()
+            # Choose the batch from this step's task, not from the whole
+            # prompt. The upstream search result lists both Thursday and
+            # Saturday; matching the whole prompt therefore always selected
+            # Saturday and silently bypassed the real conflict preflight.
+            _task = user_content.split("Task:", 1)[-1].lower()
+            if "register" in _task:
+                saturday = "saturday" in _task
                 return {
                     "tool": "register_event",
                     "args": {"student_id": ANANYA_ID,
@@ -518,9 +546,12 @@ def _mock_llm(system, messages, json_mode):
                                   "message": "Placement Prep Workshop starts in an hour.",
                                   "remind_at": "2026-08-15 09:00"},
                         "reasoning": "The student asked to be reminded an hour before."}
+            saturday = "saturday" in _task
             return {"tool": "add_to_calendar",
                     "args": {"student_id": ANANYA_ID, "title": "Placement Prep Workshop",
-                              "date": "2026-08-13", "start_time": "14:00", "end_time": "16:00"},
+                              "date": "2026-08-15" if saturday else "2026-08-13",
+                              "start_time": "10:00" if saturday else "14:00",
+                              "end_time": "12:00" if saturday else "16:00"},
                     "reasoning": "Calendar entry follows a confirmed registration."}
         return {"tool": "", "args": {},
                 "reasoning": "This step can be answered from context without a tool."}
@@ -612,3 +643,22 @@ def call_llm(system, messages, json_mode=False):
             errors.append(f"{name}: {e}")
 
     raise RuntimeError("All LLM providers failed:\n" + "\n".join(errors))
+
+
+async def call_llm_async(system, messages, json_mode=False):
+    """Run one complete provider chain without allowing it to strand a graph.
+
+    asyncio cannot forcibly stop a synchronous SDK call already running in a
+    worker thread, but the provider-level HTTP timeouts above ensure that
+    worker exits shortly afterward. The graph itself is released immediately,
+    records the step as degraded/error, and continues to run.finished.
+    """
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(call_llm, system, messages, json_mode),
+            timeout=LLM_CALL_TIMEOUT_S,
+        )
+    except TimeoutError as error:
+        raise TimeoutError(
+            f"LLM call exceeded the {LLM_CALL_TIMEOUT_S:g}s execution deadline"
+        ) from error

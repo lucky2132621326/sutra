@@ -13,7 +13,7 @@ write_turn_memory() after synthesis.
 """
 import asyncio
 
-from apps.api.llm.router import call_llm
+from apps.api.llm.router import call_llm_async
 from apps.api.memory import profile, semantic
 
 MEMORY_BLOCK_CHAR_BUDGET = 1600  # keep the injected block well under ~400 tokens
@@ -74,8 +74,8 @@ async def write_turn_memory(student_id: str, thread_id: str, user_message: str, 
     summary = ""
 
     try:
-        parsed = await asyncio.to_thread(
-            call_llm, EXTRACT_SYSTEM, [{"role": "user", "content": exchange}], json_mode=True,
+        parsed = await call_llm_async(
+            EXTRACT_SYSTEM, [{"role": "user", "content": exchange}], json_mode=True,
         )
         for fact in parsed.get("facts", []) or []:
             key, value = fact.get("key"), fact.get("value")
@@ -88,8 +88,8 @@ async def write_turn_memory(student_id: str, thread_id: str, user_message: str, 
         pass
 
     try:
-        parsed = await asyncio.to_thread(
-            call_llm, SUMMARIZE_SYSTEM, [{"role": "user", "content": exchange}], json_mode=True,
+        parsed = await call_llm_async(
+            SUMMARIZE_SYSTEM, [{"role": "user", "content": exchange}], json_mode=True,
         )
         summary = (parsed.get("summary") or "").strip()
         if summary:

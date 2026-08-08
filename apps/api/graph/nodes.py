@@ -14,7 +14,7 @@ from langgraph.types import Send, interrupt
 from apps.api import memory
 from apps.api.bus import bus
 from apps.api.graph.state import RESET
-from apps.api.llm.router import call_llm
+from apps.api.llm.router import call_llm_async
 from apps.api.tools.exceptions import ToolError
 from apps.api.tools.models import PendingAction
 from apps.api.tools.registry import TOOL_REGISTRY
@@ -178,8 +178,8 @@ async def planner_node(state: dict) -> dict:
         user_message += f"\n\nPrevious plan needs revision. Feedback: {feedback}"
 
     try:
-        parsed = await asyncio.to_thread(
-            call_llm, PLANNER_SYSTEM, [{"role": "user", "content": user_message}], json_mode=True,
+        parsed = await call_llm_async(
+            PLANNER_SYSTEM, [{"role": "user", "content": user_message}], json_mode=True,
         )
         # Conversational fast path. Spinning up five agents, a conflict arbiter
         # and a critic to answer "hello" is not just wasteful — it produced an
@@ -202,11 +202,25 @@ async def planner_node(state: dict) -> dict:
         plan = Plan.from_dict(parsed)
     except Exception as e:
         await _emit(run_id, EventType.RUN_ERROR, agent="planner",
-                    payload={"error": str(e), "detail": "planner LLM call failed; degrading to a single fallback step"})
-        plan = Plan(
-            goal=goal, reasoning="Degraded plan: planner LLM call failed.",
-            steps=[Step(id="s1", agent="services", task=goal, depends_on=[], expected_output="Best-effort answer.")],
+                    payload={"error": str(e), "detail": "planner LLM call failed; ending safely without actions"})
+        # Never turn an unplanned request into an arbitrary Services step. A
+        # timeout used to feed the whole goal to that agent; it could select a
+        # write tool (for example add_to_calendar), execute it without the
+        # eligibility/conflict plan, and then claim the entire request worked.
+        # A failed planner has no safe basis for dispatch, so terminate the
+        # turn explicitly and leave campus data untouched.
+        message = (
+            "I couldn't plan this request because the reasoning service timed out. "
+            "Nothing was changed. Please try again."
         )
+        return {
+            "plan": Plan(goal=goal, reasoning="Planner failed; no actions were dispatched.", steps=[]),
+            "conversational_reply": message,
+            "plan_version": state.get("plan_version", 0) + 1,
+            "critic_feedback": None,
+            "step_results": {RESET: True},
+            "pending_approvals": [RESET],
+        }
 
     await _emit(run_id, EventType.PLAN_REVISED if is_revision else EventType.PLAN_CREATED,
                 agent="planner", payload=plan.to_dict())
@@ -488,8 +502,8 @@ async def conflict_check_node(state: dict) -> dict:
             'Empty conflicts list if none found.'
         )
         try:
-            parsed = await asyncio.to_thread(
-                call_llm, system, [{"role": "user", "content": str(arbiter_input)}], json_mode=True,
+            parsed = await call_llm_async(
+                system, [{"role": "user", "content": str(arbiter_input)}], json_mode=True,
             )
             llm_conflicts = parsed.get("conflicts", [])
             rationale = parsed.get("rationale", "")
@@ -837,8 +851,8 @@ async def critic_node(state: dict) -> dict:
     payload = {"goal": plan.goal,
                "results": {k: {"output": v["output"], "status": v["status"]} for k, v in results.items()}}
     try:
-        parsed = await asyncio.to_thread(
-            call_llm, system, [{"role": "user", "content": str(payload)}], json_mode=True,
+        parsed = await call_llm_async(
+            system, [{"role": "user", "content": str(payload)}], json_mode=True,
         )
     except Exception as e:
         # Can't judge without an LLM — default to satisfied rather than looping forever.
@@ -956,8 +970,8 @@ async def synthesize_node(state: dict) -> dict:
         "actions_actually_taken": action_log,
     }
     try:
-        parsed = await asyncio.to_thread(
-            call_llm, system, [{"role": "user", "content": str(payload)}], json_mode=True,
+        parsed = await call_llm_async(
+            system, [{"role": "user", "content": str(payload)}], json_mode=True,
         )
         answer = parsed.get("answer", "")
     except Exception as e:

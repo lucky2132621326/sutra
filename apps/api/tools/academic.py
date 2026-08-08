@@ -106,11 +106,12 @@ def _resolve_course(session, student_id: str, course_id: str) -> str:
     honest than surfacing a contradiction.
     """
     row = session.execute(
-        text("SELECT 1 FROM attendance WHERE student_id=:sid AND course_id=:cid"),
+        text("SELECT course_id FROM attendance "
+             "WHERE student_id=:sid AND LOWER(course_id)=LOWER(:cid)"),
         {"sid": student_id, "cid": course_id},
-    ).first()
+    ).mappings().first()
     if row:
-        return course_id
+        return row["course_id"]
 
     needle = course_id.strip().lower()
     candidates = session.execute(

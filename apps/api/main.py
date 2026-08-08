@@ -7,6 +7,7 @@ Run: uvicorn apps.api.main:app --reload
 """
 import asyncio
 import json
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -19,12 +20,17 @@ from pydantic import BaseModel
 
 from apps.api.bus import bus
 from apps.api.graph.build import graph_session
-from apps.api.llm.router import call_llm
+from apps.api.llm.router import call_llm_async
 from apps.api.rag.store import _get_embedder
 from apps.api.tools import chaos
 from packages.contracts.events import AgentEvent, EventType
 
 _background_tasks: set[asyncio.Task] = set()
+# One graph leg is either the initial run or the continuation after an
+# approval. Individual model calls are bounded in llm/router.py; this outer
+# deadline is the final guarantee that a sequence of slow fallbacks cannot
+# leave the frontend in "Executing" indefinitely.
+GRAPH_LEG_TIMEOUT_S = float(os.environ.get("GRAPH_LEG_TIMEOUT_S", "60"))
 
 
 async def _warm_up() -> None:
@@ -36,8 +42,8 @@ async def _warm_up() -> None:
     means the first real question is fast, which matters on a demo clock.
     """
     try:
-        await asyncio.to_thread(
-            call_llm, "Reply with JSON.", [{"role": "user", "content": 'Return {"ready":true} as JSON.'}],
+        await call_llm_async(
+            "Reply with JSON.", [{"role": "user", "content": 'Return {"ready":true} as JSON.'}],
             True,
         )
     except Exception:
@@ -100,13 +106,21 @@ async def _drive_graph(run_id: str, graph, invoke_arg, config: dict) -> None:
     the stream open so the eventual /approve resume can keep emitting to it.
     """
     try:
-        result = await graph.ainvoke(invoke_arg, config=config)
+        result = await asyncio.wait_for(
+            graph.ainvoke(invoke_arg, config=config),
+            timeout=GRAPH_LEG_TIMEOUT_S,
+        )
         if "__interrupt__" not in result:
             await bus.close_run(run_id)
     except Exception as e:
+        error_message = (
+            f"Run timeout: execution exceeded the {GRAPH_LEG_TIMEOUT_S:g}s deadline"
+            if isinstance(e, TimeoutError)
+            else str(e)
+        )
         await bus.emit(AgentEvent(
             id=uuid.uuid4().hex[:8], run_id=run_id, ts=time.time(), type=EventType.RUN_ERROR,
-            payload={"error": str(e)},
+            payload={"error": error_message},
         ))
         await bus.close_run(run_id)
 
