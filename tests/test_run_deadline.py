@@ -141,6 +141,33 @@ async def test_known_workshop_mission_does_not_depend_on_planner_provider(monkey
 
 
 @pytest.mark.asyncio
+async def test_elective_lookup_does_not_depend_on_planner_provider(monkeypatch):
+    async def must_not_call_model(*_args, **_kwargs):
+        raise AssertionError("an unambiguous read-only lookup should not call the planner model")
+
+    async def capture_emit(_event):
+        return None
+
+    monkeypatch.setattr(nodes, "call_llm_async", must_not_call_model)
+    monkeypatch.setattr(nodes.bus, "emit", capture_emit)
+
+    result = await nodes.planner_node({
+        "run_id": "elective-read",
+        "goal": "Which electives would suit someone interested in machine learning?",
+        "student_id": "1602-23-733-042",
+        "iteration": 0,
+    })
+
+    assert len(result["plan"].steps) == 1
+    step = result["plan"].steps[0]
+    assert step.agent == "academic"
+    assert step.tool == "recommend_electives"
+    assert step.tool_args == {
+        "student_id": "1602-23-733-042", "interest": "machine learning",
+    }
+
+
+@pytest.mark.asyncio
 async def test_preflight_resolves_event_display_title_before_checking_schedule(monkeypatch):
     emitted = []
 
