@@ -227,7 +227,12 @@ def _call_ollama(system, messages, json_mode):
 
     try:
         local_client = ollama.Client(timeout=PROVIDER_TIMEOUT_S)  # defaults to http://localhost:11434
-        response = local_client.chat(model=OLLAMA_LOCAL_MODEL, messages=[{"role": "system", "content": system}] + messages, **kwargs)
+        response = local_client.chat(
+            model=OLLAMA_LOCAL_MODEL,
+            messages=[{"role": "system", "content": system}] + messages,
+            keep_alive="30m",
+            **kwargs,
+        )
         text = response["message"]["content"]
         return _parse_json_response(text) if json_mode else text
     except Exception as local_error:
@@ -241,6 +246,27 @@ def _call_ollama(system, messages, json_mode):
         response = cloud_client.chat(model=OLLAMA_CLOUD_MODEL, messages=[{"role": "system", "content": system}] + messages, **kwargs)
         text = response["message"]["content"]
         return _parse_json_response(text) if json_mode else text
+
+
+def warm_local_ollama() -> None:
+    """Load the configured local model before it is needed as a fallback.
+
+    The ordinary warm-up follows provider priority and therefore stops after a
+    successful Groq response. That left Ollama cold precisely until Groq quota
+    ran out; loading a 7B model then consumed the entire request deadline.
+    One generated token loads the model and keep_alive retains it for the demo.
+    """
+    if os.environ.get("OLLAMA_DISABLE"):
+        return
+    import ollama
+
+    client = ollama.Client(timeout=max(PROVIDER_TIMEOUT_S, 90))
+    client.generate(
+        model=OLLAMA_LOCAL_MODEL,
+        prompt="ready",
+        options={"num_predict": 1},
+        keep_alive="30m",
+    )
 
 
 def _call_anthropic(system, messages, json_mode):

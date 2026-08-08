@@ -21,7 +21,7 @@ from pydantic import BaseModel
 from apps.api.bus import bus
 from apps.api.graph.build import graph_session
 from apps.api.inbox import InboxResponse, build_inbox
-from apps.api.llm.router import call_llm_async
+from apps.api.llm.router import call_llm_async, warm_local_ollama
 from apps.api.rag.store import _get_embedder
 from apps.api.tools import chaos
 from apps.api.tools.exceptions import RecordNotFound
@@ -50,6 +50,10 @@ async def _warm_up() -> None:
         )
     except Exception:
         pass  # a cold provider must not block startup
+    try:
+        await asyncio.to_thread(warm_local_ollama)
+    except Exception:
+        pass  # local fallback is optional; API health must not depend on it
     try:
         await asyncio.to_thread(_get_embedder)
     except Exception:
