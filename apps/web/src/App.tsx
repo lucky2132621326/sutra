@@ -6,6 +6,7 @@ import { MissionGallery } from './components/MissionGallery'
 import { NodeInspector } from './components/NodeInspector'
 import { PlanCanvas } from './components/dag/PlanCanvas'
 import { Citations, Memory, Telemetry, Timeline } from './components/Rail'
+import { RunPresentation } from './components/RunPresentation'
 import { RunScore } from './components/score/RunScore'
 import { useStore } from './state/store'
 import { ReplaySource, loadFixture } from './transport/replaySource'
@@ -90,6 +91,7 @@ export default function App() {
     // still opens on the mission gallery; this switches only after the user
     // presses Play.
     st.setCenterView('score')
+    st.setPresentationMode(true)
 
     // Seed the transcript from the run itself, so replay and live produce the
     // same shape of conversation rather than two different-looking modes.
@@ -255,6 +257,17 @@ export default function App() {
     replayRef.current?.seek(index)
   }, [])
 
+  const toggleReplayPlayback = useCallback(() => {
+    const st = useStore.getState()
+    if (st.status === 'streaming') replayRef.current?.pause()
+    else replayRef.current?.resume()
+  }, [])
+
+  const changeReplaySpeed = useCallback((speed: number) => {
+    useStore.getState().setSpeed(speed)
+    replayRef.current?.setSpeed(speed)
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName
@@ -267,7 +280,11 @@ export default function App() {
       }
       if (e.key === 'ArrowRight') replayRef.current?.stepForward()
       if (e.key === 'ArrowLeft') replayRef.current?.stepBack()
-      if (e.key === 'Escape') useStore.getState().closeInspector()
+      if (e.key === 'Escape') {
+        const st = useStore.getState()
+        if (st.inspectorOpen) st.closeInspector()
+        else if (st.presentationMode && !document.fullscreenElement) st.setPresentationMode(false)
+      }
       if (e.key.toLowerCase() === 'd') {
         const st = useStore.getState()
         st.setTheme(st.theme === 'light' ? 'dark' : 'light')
@@ -279,9 +296,30 @@ export default function App() {
 
   const RailBody = { timeline: Timeline, citations: Citations, memory: Memory, telemetry: Telemetry }[s.rail]
 
+  if (s.presentationMode) {
+    const label = FIXTURES.find((fixture) => fixture.file === s.fixture)?.label ?? 'Recorded run'
+    return (
+      <>
+        <RunPresentation
+          fixtureLabel={label}
+          onSeek={seekReplay}
+          onBack={() => s.setPresentationMode(false)}
+          onTogglePlayback={toggleReplayPlayback}
+          onRestart={() => void startReplay(s.fixture)}
+          onSpeedChange={changeReplaySpeed}
+        />
+        <ApprovalModal onDecide={decide} />
+      </>
+    )
+  }
+
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--paper)' }}>
-      <Header onReplay={() => void startReplay(s.fixture)} onNewChat={newChat} />
+      <Header
+        onReplay={() => void startReplay(s.fixture)}
+        onNewChat={newChat}
+        onSpeedChange={changeReplaySpeed}
+      />
 
       <div className="cockpit" style={{ flex: 1, minHeight: 0 }}>
         <Conversation onSend={(t) => void send(t)} onCancel={stopLiveRun} />
@@ -367,7 +405,15 @@ function CenterToolbar() {
   )
 }
 
-function Header({ onReplay, onNewChat }: { onReplay: () => void; onNewChat: () => void }) {
+function Header({
+  onReplay,
+  onNewChat,
+  onSpeedChange,
+}: {
+  onReplay: () => void
+  onNewChat: () => void
+  onSpeedChange: (speed: number) => void
+}) {
   const s = useStore()
   const pct = s.progress.total ? (s.progress.index / s.progress.total) * 100 : 0
   const inspecting = s.centerView !== 'missions'
@@ -405,7 +451,7 @@ function Header({ onReplay, onNewChat }: { onReplay: () => void; onNewChat: () =
           <button onClick={onReplay} style={primaryBtn}>
             {s.fixture === 'golden_capabilities.jsonl' ? 'Play full showcase' : 'Play run'}
           </button>
-          <select value={s.speed} onChange={(e) => s.setSpeed(Number(e.target.value))} style={selectStyle}
+          <select value={s.speed} onChange={(e) => onSpeedChange(Number(e.target.value))} style={selectStyle}
             aria-label="Replay speed">
             {[0.5, 1, 2, 4].map((v) => <option key={v} value={v}>{v}×</option>)}
           </select>

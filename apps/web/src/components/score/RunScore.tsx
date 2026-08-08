@@ -33,9 +33,12 @@ const MARKER_STYLE: Record<ScoreMarker['kind'], { color: string; bg: string; gly
   fallback: { color: 'var(--degraded)', bg: 'var(--degraded-bg)', glyph: '⇢' },
 }
 
-function laneHeight(blocks: ScoreBlock[], orchestrator: boolean): number {
+function laneHeight(blocks: ScoreBlock[], orchestrator: boolean, trackHeight: number, presentation: boolean): number {
   const tracks = blocks.length ? Math.max(...blocks.map((block) => block.track)) + 1 : 1
-  return Math.max(orchestrator ? 76 : 56, 12 + tracks * TRACK_H)
+  return Math.max(
+    orchestrator ? (presentation ? 94 : 76) : (presentation ? 72 : 56),
+    12 + tracks * trackHeight,
+  )
 }
 
 function position(ts: number, start: number, end: number): number {
@@ -43,11 +46,13 @@ function position(ts: number, start: number, end: number): number {
   return Math.max(0, Math.min(100, ((ts - start) / span) * 100))
 }
 
-function WorkBlock({ block, startTs, endTs, onInspect }: {
+function WorkBlock({ block, startTs, endTs, onInspect, presentation, trackHeight }: {
   block: ScoreBlock
   startTs: number
   endTs: number
   onInspect: (block: ScoreBlock) => void
+  presentation: boolean
+  trackHeight: number
 }) {
   const actualLeft = position(block.startTs, startTs, endTs)
   const actualRight = position(block.endTs, startTs, endTs)
@@ -74,11 +79,13 @@ function WorkBlock({ block, startTs, endTs, onInspect }: {
       aria-label={`${block.lane} agent: ${block.task}, ${style.label}, ${formatElapsed(measured)}`}
       onClick={(event) => { event.stopPropagation(); onInspect(block) }}
       style={{
-        position: 'absolute', left: `${left}%`, top: 6 + block.track * TRACK_H,
-        width: `max(${width}%, 82px)`, height: 36, minWidth: 0,
+        position: 'absolute', left: `${left}%`, top: 6 + block.track * trackHeight,
+        width: `max(${width}%, ${presentation ? 126 : 82}px)`,
+        height: presentation ? 48 : 36, minWidth: 0,
         border: `1px solid ${style.color}`, borderLeft: `4px solid ${style.color}`,
         borderRadius: 'var(--r-chip)', background: style.bg, color: 'var(--ink-900)',
-        padding: '4px 8px', textAlign: 'left', cursor: 'pointer', overflow: 'hidden',
+        padding: presentation ? '7px 11px' : '4px 8px',
+        textAlign: 'left', cursor: 'pointer', overflow: 'hidden',
         boxShadow: block.status === 'running' ? '0 0 0 2px var(--running-bg)' : 'var(--e1)',
         zIndex: 3, fontFamily: 'var(--font-body)',
       }}
@@ -87,11 +94,13 @@ function WorkBlock({ block, startTs, endTs, onInspect }: {
         {block.status === 'running' && <span className="pulse-dot" style={{ background: style.color, flex: '0 0 auto' }} />}
         <strong style={{
           minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-          fontSize: 11.5, lineHeight: '14px', fontWeight: 700,
+          fontSize: presentation ? 14.5 : 11.5,
+          lineHeight: presentation ? '18px' : '14px', fontWeight: 700,
         }}>{block.task}</strong>
       </span>
       <span className="tnum" style={{
-        display: 'block', fontSize: 10, lineHeight: '12px', color: style.color,
+        display: 'block', fontSize: presentation ? 12 : 10,
+        lineHeight: presentation ? '15px' : '12px', color: style.color,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
       }}>
         {tool || style.label} · {formatElapsed(measured)}
@@ -101,11 +110,12 @@ function WorkBlock({ block, startTs, endTs, onInspect }: {
   )
 }
 
-function OrchestratorMarker({ marker, startTs, endTs, order }: {
+function OrchestratorMarker({ marker, startTs, endTs, order, presentation }: {
   marker: ScoreMarker
   startTs: number
   endTs: number
   order: number
+  presentation: boolean
 }) {
   const style = MARKER_STYLE[marker.kind]
   const left = Math.min(position(marker.ts, startTs, endTs), 96)
@@ -113,12 +123,14 @@ function OrchestratorMarker({ marker, startTs, endTs, order }: {
     <span
       title={marker.label}
       style={{
-        position: 'absolute', left: `${left}%`, top: order % 2 ? 39 : 6,
+        position: 'absolute', left: `${left}%`, top: order % 2 ? (presentation ? 49 : 39) : 6,
         transform: left > 88 ? 'translateX(-100%)' : left < 8 ? 'none' : 'translateX(-50%)',
         display: 'inline-flex', alignItems: 'center', gap: 4,
-        maxWidth: 118, padding: '3px 7px', borderRadius: 'var(--r-pill)',
+        maxWidth: presentation ? 170 : 118,
+        padding: presentation ? '5px 10px' : '3px 7px', borderRadius: 'var(--r-pill)',
         border: `1px solid ${style.color}`, background: style.bg, color: style.color,
-        fontSize: 10.5, lineHeight: '14px', fontWeight: 700, whiteSpace: 'nowrap',
+        fontSize: presentation ? 13 : 10.5,
+        lineHeight: presentation ? '17px' : '14px', fontWeight: 700, whiteSpace: 'nowrap',
         overflow: 'hidden', textOverflow: 'ellipsis', zIndex: 5,
       }}
     >
@@ -127,7 +139,10 @@ function OrchestratorMarker({ marker, startTs, endTs, order }: {
   )
 }
 
-export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
+export function RunScore({ onSeek, presentation = false }: {
+  onSeek: (index: number) => void
+  presentation?: boolean
+}) {
   const mode = useStore((s) => s.mode)
   const sourceEvents = useStore((s) => s.events)
   const progress = useStore((s) => s.progress)
@@ -136,6 +151,10 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
   const closeInspector = useStore((s) => s.closeInspector)
 
   const events = mode === 'replay' ? sourceEvents : run.timeline
+  const labelWidth = presentation ? 188 : LABEL_W
+  const axisHeight = presentation ? 52 : AXIS_H
+  const footerHeight = presentation ? 70 : FOOT_H
+  const trackHeight = presentation ? 58 : TRACK_H
   const visibleCount = mode === 'replay' ? progress.index : events.length
   const model = useMemo(
     () => buildRunScoreModel(events, visibleCount),
@@ -158,7 +177,9 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
     lane.id,
     model.blocks.filter((block) => block.lane === lane.id),
   ]))
-  const heights = SCORE_LANES.map((lane) => laneHeight(blocksByLane.get(lane.id) ?? [], lane.id === 'orchestrator'))
+  const heights = SCORE_LANES.map((lane) => laneHeight(
+    blocksByLane.get(lane.id) ?? [], lane.id === 'orchestrator', trackHeight, presentation,
+  ))
   const bodyHeight = heights.reduce((sum, height) => sum + height, 0)
   const criticalMarkers = model.markers.filter((marker) => marker.kind === 'conflict' || marker.kind === 'approval')
   const observedTools = new Set(model.blocks.flatMap((block) => block.tools))
@@ -184,38 +205,44 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
       background: 'var(--paper)', overflow: 'hidden',
     }}>
       <header style={{
-        display: 'flex', flexDirection: 'column', gap: 8, padding: '10px 14px',
+        display: 'flex', flexDirection: 'column', gap: presentation ? 12 : 8,
+        padding: presentation ? '15px 22px' : '10px 14px',
         borderBottom: '1px solid var(--line)', background: 'var(--surface)',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <div className="eyebrow" style={{ color: 'var(--accent)' }}>Agent collaboration score</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-400)' }}>
+            <div className="eyebrow" style={{
+              color: 'var(--accent)', fontSize: presentation ? 14 : undefined,
+            }}>Agent collaboration score</div>
+            <div style={{ fontSize: presentation ? 14 : 12, color: 'var(--ink-400)' }}>
               {mode === 'replay' ? 'Recorded backend events' : 'Live wall time'} · short work is widened for readability
             </div>
           </div>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 16, alignItems: 'baseline' }}>
-            <Metric label="Elapsed" value={`${formatElapsed(elapsedMs)} / ${formatElapsed(model.durationMs)}`} />
-            <Metric label="Peak parallel" value={`${model.peakConcurrency || 0} agents`} />
-            <Metric label="Tools verified" value={`${observedTools.size} / 24`} />
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: presentation ? 28 : 16, alignItems: 'baseline' }}>
+            <Metric presentation={presentation} label="Elapsed" value={`${formatElapsed(elapsedMs)} / ${formatElapsed(model.durationMs)}`} />
+            <Metric presentation={presentation} label="Peak parallel" value={`${model.peakConcurrency || 0} agents`} />
+            <Metric presentation={presentation} label="Tools verified" value={`${observedTools.size} / 24`} />
           </div>
         </div>
-        <CapabilityCoverage blocks={model.blocks} />
+        <CapabilityCoverage blocks={model.blocks} presentation={presentation} />
       </header>
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-        <div style={{ minWidth: 620, position: 'relative' }}>
+        <div style={{ minWidth: presentation ? 980 : 620, position: 'relative' }}>
           <div style={{
-            height: AXIS_H, display: 'grid', gridTemplateColumns: `${LABEL_W}px minmax(0, 1fr)`,
+            height: axisHeight, display: 'grid', gridTemplateColumns: `${labelWidth}px minmax(0, 1fr)`,
             borderBottom: '1px solid var(--line)', background: 'var(--surface-sunken)',
           }}>
-            <div className="eyebrow" style={{ padding: '12px 12px 0' }}>Agent lanes</div>
-            <div style={{ position: 'relative', marginRight: 16 }}>
+            <div className="eyebrow" style={{
+              padding: presentation ? '15px 18px 0' : '12px 12px 0',
+              fontSize: presentation ? 13 : undefined,
+            }}>Agent lanes</div>
+            <div style={{ position: 'relative', marginRight: presentation ? 24 : 16 }}>
               {ticks.map((tick) => (
                 <span key={tick.fraction} className="tnum" style={{
-                  position: 'absolute', left: `${tick.fraction * 100}%`, top: 10,
+                  position: 'absolute', left: `${tick.fraction * 100}%`, top: presentation ? 15 : 10,
                   transform: tick.fraction === 0 ? 'none' : tick.fraction === 1 ? 'translateX(-100%)' : 'translateX(-50%)',
-                  fontSize: 10.5, color: 'var(--ink-400)',
+                  fontSize: presentation ? 12.5 : 10.5, color: 'var(--ink-400)',
                 }}>{tick.label}</span>
               ))}
             </div>
@@ -232,33 +259,46 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
                 const height = heights[laneIndex]
                 return (
                   <div key={lane.id} style={{
-                    height, display: 'grid', gridTemplateColumns: `${LABEL_W}px minmax(0, 1fr)`,
+                    height, display: 'grid', gridTemplateColumns: `${labelWidth}px minmax(0, 1fr)`,
                     borderBottom: '1px solid var(--line)', background: laneIndex % 2 ? 'var(--surface)' : 'var(--paper)',
                   }}>
                     <div style={{
-                      padding: '10px 10px 8px 14px', borderRight: '1px solid var(--line)',
+                      padding: presentation ? '12px 14px 10px 20px' : '10px 10px 8px 14px',
+                      borderRight: '1px solid var(--line)',
                       display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0,
                     }}>
                       <span className="eyebrow" style={{
                         color: lane.id === 'orchestrator'
                           ? 'var(--agent-orchestration)'
                           : `var(--agent-${lane.id})`,
-                        fontSize: 10.5,
+                        fontSize: presentation ? 13 : 10.5,
                       }}>
                         {lane.label}
                       </span>
-                      <span style={{ fontSize: 10.5, lineHeight: '14px', color: 'var(--ink-400)' }}>{lane.role}</span>
+                      <span style={{
+                        fontSize: presentation ? 12.5 : 10.5,
+                        lineHeight: presentation ? '17px' : '14px', color: 'var(--ink-400)',
+                      }}>{lane.role}</span>
                     </div>
-                    <div style={{ position: 'relative', minWidth: 0, marginRight: 16, overflow: 'hidden' }}>
+                    <div style={{
+                      position: 'relative', minWidth: 0,
+                      marginRight: presentation ? 24 : 16, overflow: 'hidden',
+                    }}>
                       <div aria-hidden style={{
                         position: 'absolute', left: 0, right: 0, top: '50%', height: 1,
                         background: 'var(--line)',
                       }} />
                       {lane.id === 'orchestrator' && model.markers.map((marker, index) => (
-                        <OrchestratorMarker key={marker.id} marker={marker} startTs={axisStart} endTs={axisEnd} order={index} />
+                        <OrchestratorMarker
+                          key={marker.id} marker={marker} startTs={axisStart} endTs={axisEnd}
+                          order={index} presentation={presentation}
+                        />
                       ))}
                       {laneBlocks.map((block) => (
-                        <WorkBlock key={block.id} block={block} startTs={axisStart} endTs={axisEnd} onInspect={inspect} />
+                        <WorkBlock
+                          key={block.id} block={block} startTs={axisStart} endTs={axisEnd}
+                          onInspect={inspect} presentation={presentation} trackHeight={trackHeight}
+                        />
                       ))}
                     </div>
                   </div>
@@ -267,7 +307,8 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
             </div>
 
             <div aria-hidden style={{
-              position: 'absolute', left: LABEL_W, right: 16, top: 0, height: bodyHeight,
+              position: 'absolute', left: labelWidth, right: presentation ? 24 : 16,
+              top: 0, height: bodyHeight,
               pointerEvents: 'none', overflow: 'hidden',
             }}>
               {model.gates.map((gate) => {
@@ -307,16 +348,18 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
           </div>
 
           <footer style={{
-            height: FOOT_H, display: 'grid', gridTemplateColumns: `${LABEL_W}px minmax(0, 1fr)`,
+            height: footerHeight, display: 'grid', gridTemplateColumns: `${labelWidth}px minmax(0, 1fr)`,
             background: 'var(--surface)', borderBottom: '1px solid var(--line)',
           }}>
-            <div style={{ padding: '10px 12px', borderRight: '1px solid var(--line)' }}>
-              <div className="eyebrow" style={{ fontSize: 10.5 }}>Run position</div>
-              <div className="tnum" style={{ fontSize: 11.5, color: 'var(--ink-600)' }}>
+            <div style={{
+              padding: presentation ? '13px 18px' : '10px 12px', borderRight: '1px solid var(--line)',
+            }}>
+              <div className="eyebrow" style={{ fontSize: presentation ? 12 : 10.5 }}>Run position</div>
+              <div className="tnum" style={{ fontSize: presentation ? 14 : 11.5, color: 'var(--ink-600)' }}>
                 {model.visibleCount} / {model.totalCount} events
               </div>
             </div>
-            <div style={{ padding: '10px 16px 8px 0' }}>
+            <div style={{ padding: presentation ? '13px 24px 10px 0' : '10px 16px 8px 0' }}>
               {mode === 'replay' ? (
                 <input
                   aria-label="Scrub recorded run"
@@ -333,7 +376,7 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
                   background: 'linear-gradient(90deg, var(--accent), var(--running))',
                 }} />
               )}
-              <div style={{ fontSize: 10.5, color: 'var(--ink-400)', marginTop: 2 }}>
+              <div style={{ fontSize: presentation ? 12.5 : 10.5, color: 'var(--ink-400)', marginTop: 2 }}>
                 {mode === 'replay'
                   ? 'Drag to pause and inspect any point. Click a work block for its tools, evidence and result.'
                   : 'The cursor advances with the live event stream.'}
@@ -343,11 +386,14 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
 
           {!events.length && (
             <div style={{
-              position: 'absolute', left: LABEL_W, right: 16, top: AXIS_H + 88,
+              position: 'absolute', left: labelWidth, right: presentation ? 24 : 16,
+              top: axisHeight + (presentation ? 110 : 88),
               textAlign: 'center', pointerEvents: 'none',
             }}>
-              <div className="font-display" style={{ fontSize: 20, color: 'var(--ink-600)' }}>The score is waiting</div>
-              <div style={{ fontSize: 13, color: 'var(--ink-400)', marginTop: 5 }}>
+              <div className="font-display" style={{
+                fontSize: presentation ? 28 : 20, color: 'var(--ink-600)',
+              }}>The score is waiting</div>
+              <div style={{ fontSize: presentation ? 16 : 13, color: 'var(--ink-400)', marginTop: 5 }}>
                 Ask a question or play a recorded run. Overlapping work will appear on these permanent agent lanes.
               </div>
             </div>
@@ -358,11 +404,16 @@ export function RunScore({ onSeek }: { onSeek: (index: number) => void }) {
   )
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, presentation }: { label: string; value: string; presentation: boolean }) {
   return (
     <div style={{ textAlign: 'right' }}>
-      <div className="eyebrow" style={{ fontSize: 9.5, lineHeight: '12px' }}>{label}</div>
-      <div className="tnum" style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink-900)', whiteSpace: 'nowrap' }}>
+      <div className="eyebrow" style={{
+        fontSize: presentation ? 11.5 : 9.5, lineHeight: presentation ? '15px' : '12px',
+      }}>{label}</div>
+      <div className="tnum" style={{
+        fontSize: presentation ? 16 : 12.5, fontWeight: 700,
+        color: 'var(--ink-900)', whiteSpace: 'nowrap',
+      }}>
         {value}
       </div>
     </div>
@@ -377,7 +428,7 @@ const TOOL_TOTALS: Record<string, number> = {
   services: 9,
 }
 
-function CapabilityCoverage({ blocks }: { blocks: ScoreBlock[] }) {
+function CapabilityCoverage({ blocks, presentation }: { blocks: ScoreBlock[]; presentation: boolean }) {
   const byAgent = new Map<string, Set<string>>()
   for (const block of blocks) {
     const tools = byAgent.get(block.lane) ?? new Set<string>()
@@ -387,7 +438,8 @@ function CapabilityCoverage({ blocks }: { blocks: ScoreBlock[] }) {
 
   return (
     <div aria-label="Backend capability coverage" style={{
-      display: 'grid', gridTemplateColumns: 'repeat(5, minmax(90px, 1fr))', gap: 6,
+      display: 'grid', gridTemplateColumns: 'repeat(5, minmax(90px, 1fr))',
+      gap: presentation ? 10 : 6,
     }}>
       {SCORE_LANES.filter((lane) => lane.id !== 'orchestrator').map((lane) => {
         const count = byAgent.get(lane.id)?.size ?? 0
@@ -395,21 +447,23 @@ function CapabilityCoverage({ blocks }: { blocks: ScoreBlock[] }) {
         const complete = count === total
         return (
           <div key={lane.id} title={`${count} of ${total} ${lane.label} tools observed`} style={{
-            minWidth: 0, padding: '5px 7px', border: '1px solid var(--line)',
+            minWidth: 0, padding: presentation ? '8px 10px' : '5px 7px', border: '1px solid var(--line)',
             borderRadius: 'var(--r-chip)', background: complete ? 'var(--success-bg)' : 'var(--surface-sunken)',
           }}>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
               <span className="eyebrow" style={{
                 minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis',
-                color: complete ? 'var(--success)' : `var(--agent-${lane.id})`, fontSize: 9,
+                color: complete ? 'var(--success)' : `var(--agent-${lane.id})`,
+                fontSize: presentation ? 11.5 : 9,
               }}>{lane.label}</span>
               <span className="tnum" style={{
                 marginLeft: 'auto', color: complete ? 'var(--success)' : 'var(--ink-400)',
-                fontSize: 10.5, fontWeight: 700,
+                fontSize: presentation ? 13 : 10.5, fontWeight: 700,
               }}>{count}/{total}</span>
             </div>
             <span style={{
-              display: 'block', height: 2, marginTop: 3, borderRadius: 2,
+              display: 'block', height: presentation ? 4 : 2,
+              marginTop: presentation ? 5 : 3, borderRadius: 2,
               background: 'var(--line)', overflow: 'hidden',
             }}>
               <span style={{

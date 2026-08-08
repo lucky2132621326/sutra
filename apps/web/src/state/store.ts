@@ -35,6 +35,9 @@ interface UIState {
   selectedStepId: string | null
   activeApprovalId: string | null
   centerView: CenterView
+  /** Judge-facing replay surface. Unlike centerView, this temporarily replaces
+   *  the entire cockpit so the collaboration score can use the full screen. */
+  presentationMode: boolean
   rail: 'timeline' | 'citations' | 'memory' | 'telemetry'
   /** Buffered so scrubbing can re-fold without re-fetching. */
   events: AgentEvent[]
@@ -72,6 +75,7 @@ interface Actions {
   selectStep: (id: string | null) => void
   setActiveApproval: (id: string | null) => void
   setCenterView: (view: CenterView) => void
+  setPresentationMode: (open: boolean) => void
   setRail: (r: UIState['rail']) => void
   setBackendUp: (up: boolean) => void
   setLiveRunId: (id: string | null) => void
@@ -100,6 +104,7 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   selectedStepId: null,
   activeApprovalId: null,
   centerView: 'missions',
+  presentationMode: false,
   rail: 'timeline',
   events: [],
   run: initialRunState(),
@@ -157,6 +162,7 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   selectStep: (selectedStepId) => set({ selectedStepId }),
   setActiveApproval: (activeApprovalId) => set({ activeApprovalId }),
   setCenterView: (centerView) => set({ centerView }),
+  setPresentationMode: (presentationMode) => set({ presentationMode }),
   setRail: (rail) => set({ rail }),
   setBackendUp: (backendUp) => set({ backendUp }),
   setLiveRunId: (liveRunId) => set({ liveRunId }),

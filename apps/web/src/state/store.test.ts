@@ -5,7 +5,7 @@ import { useStore } from './store'
 
 afterEach(() => {
   useStore.setState({
-    centerView: 'missions', mode: 'replay', events: [], progress: { index: 0, total: 0 },
+    centerView: 'missions', presentationMode: false, mode: 'replay', events: [], progress: { index: 0, total: 0 },
     turns: [], draft: '', sending: false, threadId: null, liveRunId: null,
   })
   useStore.getState().resetRun()
@@ -20,6 +20,15 @@ describe('cockpit view state', () => {
     expect(useStore.getState().centerView).toBe('plan')
     useStore.getState().setCenterView('missions')
     expect(useStore.getState().centerView).toBe('missions')
+  })
+
+  it('opens and closes the dedicated presentation surface independently', () => {
+    expect(useStore.getState().presentationMode).toBe(false)
+    useStore.getState().setPresentationMode(true)
+    expect(useStore.getState().presentationMode).toBe(true)
+    expect(useStore.getState().centerView).toBe('missions')
+    useStore.getState().setPresentationMode(false)
+    expect(useStore.getState().presentationMode).toBe(false)
   })
 
   it('buffers live events for the score without duplicating replay fixtures', () => {
