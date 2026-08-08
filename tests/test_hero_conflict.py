@@ -143,9 +143,16 @@ async def test_thursday_is_proposed_but_never_written():
     assert len(executed) == 1, f"expected exactly one real registration, got {len(executed)}"
     assert executed[0]["payload"]["data"]["event_id"] == "evt_workshop_sat"
 
+    # Scoped to register_event specifically. The unscoped version of this check
+    # (any "ok" tool.result whose JSON happens to mention the id) also matched
+    # search_events's own result — it legitimately lists BOTH sessions,
+    # Thursday included, while doing its job of showing what's available. That
+    # is not a write, and flagging it made this test fail on a call that never
+    # touched a write path at all.
     thursday_writes = [
         e for e in events
         if e["type"] == "tool.result"
+        and e["payload"].get("tool") == "register_event"
         and e["payload"].get("status") == "ok"
         and "evt_workshop_thu" in json.dumps(e["payload"])
     ]
