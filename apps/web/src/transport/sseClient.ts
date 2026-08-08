@@ -15,6 +15,7 @@
 import type { AgentEvent } from '../types/events'
 import type { InboxResponse } from '../types/inbox'
 import type { Locale } from '../i18n'
+import type { CalendarResponse } from '../types/calendar'
 import type { EventTransport, TransportCallbacks } from './types'
 
 export class SSEClient implements EventTransport {
@@ -151,4 +152,16 @@ export async function getInbox(studentId: string, base = ''): Promise<InboxRespo
   const res = await fetch(`${base}/inbox/${encodeURIComponent(studentId)}`, { cache: 'no-store' })
   if (!res.ok) throw new Error(`inbox ${res.status}`)
   return res.json() as Promise<InboxResponse>
+}
+
+export async function getCalendar(
+  studentId: string, start: string, end: string, base = '',
+): Promise<CalendarResponse> {
+  const query = new URLSearchParams({ start, end })
+  const res = await fetch(
+    `${base}/calendar/${encodeURIComponent(studentId)}?${query.toString()}`,
+    { cache: 'no-store' },
+  )
+  if (!res.ok) throw new Error(`calendar ${res.status}`)
+  return res.json() as Promise<CalendarResponse>
 }

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApprovalModal } from './components/ApprovalModal'
+import { CalendarPage } from './components/CalendarPage'
 import { Conversation } from './components/Conversation'
 import { InboxDrawer } from './components/InboxDrawer'
 import { copy, LANGUAGES, type Locale } from './i18n'
+import { useCalendar } from './hooks/useCalendar'
 import { useInbox } from './hooks/useInbox'
 import { MissionGallery } from './components/MissionGallery'
 import { NodeInspector } from './components/NodeInspector'
@@ -28,7 +30,10 @@ const STUDENT = '1602-23-733-042'
 export default function App() {
   const s = useStore()
   const [inboxOpen, setInboxOpen] = useState(false)
+  const [calendarOpen, setCalendarOpen] = useState(false)
   const inbox = useInbox(STUDENT)
+  const calendar = useCalendar(STUDENT)
+  const refreshCalendar = calendar.refresh
   const replayRef = useRef<ReplaySource | null>(null)
   const sseRef = useRef<SSEClient | null>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
@@ -158,6 +163,7 @@ export default function App() {
             const pending = st2.turns.filter((t) => t.role === 'assistant' && t.pending).at(-1)
             if (pending) st2.resolveTurn(pending.id, st2.run.answer ?? '')
             st2.setSending(false)
+            refreshCalendar()
           }
           // A terminal graph error is just as final as run.finished. Benign
           // per-agent degradation notices include an agent/detail and must not
@@ -211,7 +217,7 @@ export default function App() {
     } finally {
       if (chatAbortRef.current === controller) chatAbortRef.current = null
     }
-  }, [stopAll])
+  }, [stopAll, refreshCalendar])
 
   const stopLiveRun = useCallback(() => {
     stopAll()
@@ -326,7 +332,9 @@ export default function App() {
         onNewChat={newChat}
         onSpeedChange={changeReplaySpeed}
         onInbox={() => setInboxOpen(true)}
+        onCalendar={() => setCalendarOpen(true)}
         inboxCount={inbox.data?.attention_count ?? 0}
+        calendarCount={calendar.data?.items.filter((item) => item.kind === 'event' || item.kind === 'calendar').length ?? 0}
       />
 
       <div className="cockpit" style={{ flex: 1, minHeight: 0 }}>
@@ -382,6 +390,15 @@ export default function App() {
           onRefresh={inbox.refresh}
         />
       )}
+      {calendarOpen && (
+        <CalendarPage
+          data={calendar.data}
+          loading={calendar.loading}
+          error={calendar.error}
+          onClose={() => setCalendarOpen(false)}
+          onRefresh={calendar.refresh}
+        />
+      )}
     </div>
   )
 }
@@ -427,13 +444,17 @@ function Header({
   onNewChat,
   onSpeedChange,
   onInbox,
+  onCalendar,
   inboxCount,
+  calendarCount,
 }: {
   onReplay: () => void
   onNewChat: () => void
   onSpeedChange: (speed: number) => void
   onInbox: () => void
+  onCalendar: () => void
   inboxCount: number
+  calendarCount: number
 }) {
   const s = useStore()
   const pct = s.progress.total ? (s.progress.index / s.progress.total) * 100 : 0
@@ -489,6 +510,10 @@ function Header({
       )}
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={onCalendar} style={calendarBtn} className="inbox-trigger" aria-label={`Calendar${calendarCount ? `, ${calendarCount} approved commitments` : ''}`}>
+          Calendar
+          {calendarCount > 0 && <span className="calendar-header-count">{calendarCount}</span>}
+        </button>
         <button onClick={onInbox} style={ghostBtn} className="inbox-trigger" aria-label={`Inbox${inboxCount ? `, ${inboxCount} alerts` : ''}`}>
           {t('inbox')}
           {inboxCount > 0 && <span className="inbox-badge">{inboxCount > 9 ? '9+' : inboxCount}</span>}
@@ -553,4 +578,10 @@ const inspectBtn: React.CSSProperties = {
   border: '1px solid var(--accent)',
   background: 'var(--accent-weak)',
   color: 'var(--accent)',
+}
+const calendarBtn: React.CSSProperties = {
+  ...ghostBtn,
+  border: '1px solid var(--success)',
+  background: 'var(--success-bg)',
+  color: 'var(--success)',
 }

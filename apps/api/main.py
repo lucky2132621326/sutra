@@ -11,6 +11,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,6 +20,7 @@ from langgraph.types import Command
 from pydantic import BaseModel
 
 from apps.api.bus import bus
+from apps.api.calendar import CalendarResponse, build_calendar
 from apps.api.graph.build import graph_session
 from apps.api.inbox import InboxResponse, build_inbox
 from apps.api.llm.router import call_llm_async, warm_local_ollama
@@ -225,3 +227,18 @@ async def inbox(student_id: str):
         return await asyncio.to_thread(build_inbox, student_id)
     except RecordNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/calendar/{student_id}", response_model=CalendarResponse)
+async def calendar(student_id: str, start: str | None = None, end: str | None = None):
+    """Verified timetable, approved registrations, calendar writes and reminders."""
+    try:
+        start_date = date.fromisoformat(start) if start else None
+        end_date = date.fromisoformat(end) if end else None
+        return await asyncio.to_thread(
+            build_calendar, student_id, range_start=start_date, range_end=end_date,
+        )
+    except RecordNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
