@@ -26,6 +26,7 @@ const FIXTURES = [
 ]
 
 const STUDENT = '1602-23-733-042'
+const CALENDAR_WRITE_TOOLS = new Set(['register_event', 'add_to_calendar', 'create_reminder'])
 
 export default function App() {
   const s = useStore()
@@ -157,6 +158,19 @@ export default function App() {
           if (e.type === 'approval.requested') {
             const id = String((e.payload as { id?: string }).id ?? '')
             if (id && !store.run.resolvedApprovalIds.includes(id)) store.setActiveApproval(id)
+          }
+          if (e.type === 'tool.result') {
+            const payload = e.payload as { tool?: string; status?: string; data?: { receipt_id?: string } }
+            if (
+              payload.status === 'ok'
+              && payload.tool && CALENDAR_WRITE_TOOLS.has(payload.tool)
+              && payload.data?.receipt_id
+            ) {
+              // The database commit happens before this receipt is emitted.
+              // Refresh now so an open calendar updates as each write lands,
+              // rather than waiting for the rest of the agent run to finish.
+              refreshCalendar()
+            }
           }
           if (e.type === 'run.finished') {
             const st2 = useStore.getState()
@@ -332,7 +346,7 @@ export default function App() {
         onNewChat={newChat}
         onSpeedChange={changeReplaySpeed}
         onInbox={() => setInboxOpen(true)}
-        onCalendar={() => setCalendarOpen(true)}
+        onCalendar={() => { calendar.refresh(); setCalendarOpen(true) }}
         inboxCount={inbox.data?.attention_count ?? 0}
         calendarCount={calendar.data?.items.filter((item) => item.kind === 'event' || item.kind === 'calendar').length ?? 0}
       />

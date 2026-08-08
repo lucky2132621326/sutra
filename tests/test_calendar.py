@@ -39,3 +39,13 @@ def test_approved_event_calendar_write_and_reminder_merge_with_receipts():
     assert set(event_item.receipt_ids) == {registration.receipt_id, calendar_write.receipt_id}
     assert reminder.receipt_id in reminder_item.receipt_ids
     assert len([item for item in calendar.items if item.kind in {"event", "calendar"}]) == 1
+
+    # A browser refresh creates a new API request and database session. The
+    # commitment and its proof must survive that round trip; none of this is
+    # transient frontend state.
+    refreshed = build_calendar(
+        ANANYA, range_start=date(2026, 8, 10), range_end=date(2026, 8, 16),
+    )
+    refreshed_event = next(item for item in refreshed.items if item.kind == "event")
+    assert set(refreshed_event.receipt_ids) == {registration.receipt_id, calendar_write.receipt_id}
+    assert any(item.id == reminder_item.id for item in refreshed.items)
