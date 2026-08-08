@@ -113,15 +113,23 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   inspectorOpen: false,
   composerFocusNonce: 0,
 
-  ingest: (e) => set((s) => ({
-    run: reduce(s.run, e),
-    // Replay already has the complete fixture buffered. Live runs grow this
-    // list event-by-event so the score can use the same scrub/time model.
-    events: s.mode === 'live' ? [...s.events, e] : s.events,
-    progress: s.mode === 'live'
-      ? { index: s.events.length + 1, total: s.events.length + 1 }
-      : s.progress,
-  })),
+  ingest: (e) => set((s) => {
+    const run = reduce(s.run, e)
+    const terminalError = e.type === 'run.error' && e.agent == null && e.payload.detail === undefined
+    return {
+      run,
+      // Terminal event and composer lock are one state transition. Keeping
+      // this invariant in the store prevents a rendering/callback race from
+      // leaving a completed run stuck on the second prompt.
+      sending: e.type === 'run.finished' || terminalError ? false : s.sending,
+      // Replay already has the complete fixture buffered. Live runs grow this
+      // list event-by-event so the score can use the same scrub/time model.
+      events: s.mode === 'live' ? [...s.events, e] : s.events,
+      progress: s.mode === 'live'
+        ? { index: s.events.length + 1, total: s.events.length + 1 }
+        : s.progress,
+    }
+  }),
   resetRun: () => set({
     run: initialRunState(), events: [], progress: { index: 0, total: 0 },
     selectedStepId: null, activeApprovalId: null,
@@ -165,7 +173,12 @@ export const useStore = create<UIState & Actions>((set, get) => ({
   })),
   setDraft: (draft) => set({ draft }),
   setSending: (sending) => set({ sending }),
-  clearConversation: () => set({ turns: [], threadId: null }),
+  // New chat is a lifecycle reset, not just transcript deletion. In
+  // particular it must release a composer locked by an interrupted stream.
+  clearConversation: () => set({
+    turns: [], threadId: null, liveRunId: null, draft: '', sending: false,
+    approvalInFlight: false, status: 'idle',
+  }),
 
   openInspector: (selectedStepId) => set({ selectedStepId, inspectorOpen: true }),
   closeInspector: () => set({ inspectorOpen: false }),

@@ -25,6 +25,11 @@ export default function App() {
   const s = useStore()
   const replayRef = useRef<ReplaySource | null>(null)
   const sseRef = useRef<SSEClient | null>(null)
+  const chatAbortRef = useRef<AbortController | null>(null)
+  // Every transport callback captures the epoch it belongs to. Starting or
+  // stopping a run advances it, so a late frame from an abandoned request can
+  // never unlock, overwrite or otherwise interfere with the next turn.
+  const transportEpochRef = useRef(0)
 
   useEffect(() => {
     // Precedence: what this user last chose here, then whatever the host page
@@ -59,11 +64,25 @@ export default function App() {
     return () => { alive = false; clearInterval(t) }
   }, [])
 
-  const stopAll = () => { replayRef.current?.stop(); sseRef.current?.stop() }
+  const stopAll = useCallback(() => {
+    transportEpochRef.current += 1
+    chatAbortRef.current?.abort()
+    chatAbortRef.current = null
+    replayRef.current?.stop()
+    replayRef.current = null
+    sseRef.current?.stop()
+    sseRef.current = null
+  }, [])
 
   const startReplay = useCallback(async (file: string) => {
     stopAll()
     const st = useStore.getState()
+    st.setMode('replay')
+    st.setSending(false)
+    st.setLiveRunId(null)
+    // Replays are standalone demonstrations. If they replace an in-flight
+    // live turn, do not reuse that abandoned checkpoint on the next question.
+    st.setThreadId(null)
     st.resetRun()
     const events = await loadFixture(file)
     st.loadEvents(events)
@@ -93,11 +112,14 @@ export default function App() {
     src.setSpeed(useStore.getState().speed)
     replayRef.current = src
     src.start()
-  }, [])
+  }, [stopAll])
 
   /** The whole point of the composer: any question, live, no hardcoding. */
   const send = useCallback(async (text: string) => {
     stopAll()
+    const epoch = transportEpochRef.current
+    const controller = new AbortController()
+    chatAbortRef.current = controller
     const st = useStore.getState()
     st.setMode('live')
     st.setSending(true)
@@ -106,12 +128,17 @@ export default function App() {
     st.addTurn({ role: 'assistant', text: '', runId: null, pending: true })
 
     try {
-      const { runId, threadId } = await postChat(text, STUDENT, 'student', st.threadId)
+      const { runId, threadId } = await postChat(
+        text, STUDENT, 'student', st.threadId, '', controller.signal,
+      )
+      if (transportEpochRef.current !== epoch) return
+      chatAbortRef.current = null
       useStore.getState().setLiveRunId(runId)
       useStore.getState().setThreadId(threadId)
 
       const client = new SSEClient(runId, {
         onEvent: (e) => {
+          if (transportEpochRef.current !== epoch) return
           const store = useStore.getState()
           store.ingest(e)
           if (e.type === 'approval.requested') {
@@ -120,23 +147,51 @@ export default function App() {
           }
           if (e.type === 'run.finished') {
             const st2 = useStore.getState()
-            const pending = st2.turns.filter((t) => t.role === 'assistant').at(-1)
+            const pending = st2.turns.filter((t) => t.role === 'assistant' && t.pending).at(-1)
             if (pending) st2.resolveTurn(pending.id, st2.run.answer ?? '')
+            st2.setSending(false)
+          }
+          // A terminal graph error is just as final as run.finished. Benign
+          // per-agent degradation notices include an agent/detail and must not
+          // release the composer while the graph is still working.
+          if (e.type === 'run.error' && e.agent == null && e.payload.detail === undefined) {
+            const st2 = useStore.getState()
+            const pending = st2.turns.filter((t) => t.role === 'assistant' && t.pending).at(-1)
+            if (pending) st2.resolveTurn(pending.id, '')
             st2.setSending(false)
           }
         },
         onStatus: (status) => {
-          useStore.getState().setStatus(status)
-          if (status === 'closed' || status === 'error') useStore.getState().setSending(false)
+          if (transportEpochRef.current !== epoch) return
+          const st2 = useStore.getState()
+          st2.setStatus(status)
+          if (status === 'closed' || status === 'error') {
+            st2.setSending(false)
+            // A healthy stream closes after run.finished. Anything else would
+            // otherwise leave the newest assistant turn saying "Thinking"
+            // forever even though there is no transport left to finish it.
+            if (!st2.run.runComplete && !st2.run.fatalError) {
+              const pending = st2.turns.filter((t) => t.role === 'assistant' && t.pending).at(-1)
+              if (pending) {
+                st2.resolveTurn(
+                  pending.id,
+                  status === 'error'
+                    ? 'The live event stream disconnected before the run completed. Your request was not submitted again.'
+                    : 'The run ended before a final answer arrived. You can safely try again.',
+                )
+              }
+            }
+          }
         },
       })
       sseRef.current = client
       client.start()
-    } catch {
+    } catch (error) {
+      if ((error as Error)?.name === 'AbortError' || transportEpochRef.current !== epoch) return
       const st2 = useStore.getState()
       st2.setStatus('error')
       st2.setSending(false)
-      const pending = st2.turns.filter((t) => t.role === 'assistant').at(-1)
+      const pending = st2.turns.filter((t) => t.role === 'assistant' && t.pending).at(-1)
       if (pending) {
         st2.resolveTurn(
           pending.id,
@@ -145,8 +200,34 @@ export default function App() {
           'Replay to show a recorded run.',
         )
       }
+    } finally {
+      if (chatAbortRef.current === controller) chatAbortRef.current = null
     }
-  }, [])
+  }, [stopAll])
+
+  const stopLiveRun = useCallback(() => {
+    stopAll()
+    const st = useStore.getState()
+    const pending = st.turns.filter((t) => t.role === 'assistant' && t.pending).at(-1)
+    if (pending) st.resolveTurn(pending.id, 'Run stopped. Your draft is still here, so you can edit it or send it again.')
+    st.setSending(false)
+    st.setStatus('idle')
+    st.setLiveRunId(null)
+    // The backend has no cancellation endpoint, so any abandoned graph may
+    // finish in the background. A fresh thread prevents that old checkpoint
+    // from racing with the user's next question.
+    st.setThreadId(null)
+    st.setActiveApproval(null)
+  }, [stopAll])
+
+  const newChat = useCallback(() => {
+    stopAll()
+    const st = useStore.getState()
+    st.clearConversation()
+    st.resetRun()
+    st.setStatus('idle')
+    st.setCenterView('missions')
+  }, [stopAll])
 
   const decide = useCallback(
     async (id: string, decision: 'approve' | 'reject' | 'edit', edited: Record<string, unknown> | null) => {
@@ -200,10 +281,10 @@ export default function App() {
 
   return (
     <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--paper)' }}>
-      <Header onReplay={() => void startReplay(s.fixture)} />
+      <Header onReplay={() => void startReplay(s.fixture)} onNewChat={newChat} />
 
       <div className="cockpit" style={{ flex: 1, minHeight: 0 }}>
-        <Conversation onSend={(t) => void send(t)} />
+        <Conversation onSend={(t) => void send(t)} onCancel={stopLiveRun} />
 
         <main className="cockpit-canvas" style={{
           position: 'relative', minWidth: 0, overflow: 'hidden',
@@ -286,7 +367,7 @@ function CenterToolbar() {
   )
 }
 
-function Header({ onReplay }: { onReplay: () => void }) {
+function Header({ onReplay, onNewChat }: { onReplay: () => void; onNewChat: () => void }) {
   const s = useStore()
   const pct = s.progress.total ? (s.progress.index / s.progress.total) * 100 : 0
   const inspecting = s.centerView !== 'missions'
@@ -341,7 +422,7 @@ function Header({ onReplay }: { onReplay: () => void }) {
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
         {s.turns.length > 0 && (
-          <button onClick={() => { s.clearConversation(); s.resetRun() }} style={ghostBtn}>
+          <button onClick={onNewChat} style={ghostBtn}>
             New chat
           </button>
         )}

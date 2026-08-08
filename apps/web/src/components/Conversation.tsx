@@ -35,7 +35,13 @@ const SUGGESTIONS = [
   },
 ]
 
-export function Conversation({ onSend }: { onSend: (text: string) => void }) {
+export function Conversation({
+  onSend,
+  onCancel,
+}: {
+  onSend: (text: string) => void
+  onCancel: () => void
+}) {
   const turns = useStore((s) => s.turns)
   const draft = useStore((s) => s.draft)
   const setDraft = useStore((s) => s.setDraft)
@@ -103,7 +109,10 @@ export function Conversation({ onSend }: { onSend: (text: string) => void }) {
             onKeyDown={(e) => {
               // Enter sends, Shift+Enter breaks the line — the convention
               // everyone already has muscle memory for.
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit() }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                if (!sending) submit()
+              }
             }}
             rows={2}
             placeholder={mode === 'replay'
@@ -117,18 +126,19 @@ export function Conversation({ onSend }: { onSend: (text: string) => void }) {
             }}
           />
           <button
-            onClick={submit}
-            disabled={!canSend}
-            aria-label="Send"
+            onClick={sending ? onCancel : submit}
+            disabled={sending ? false : !canSend}
+            aria-label={sending ? 'Stop current run' : 'Send'}
             style={{
-              border: 'none', borderRadius: 'var(--r-input)', cursor: canSend ? 'pointer' : 'not-allowed',
-              background: canSend ? 'var(--accent)' : 'var(--surface-sunken)',
-              color: canSend ? 'var(--accent-ink)' : 'var(--ink-300)',
+              border: sending ? '1px solid var(--danger)' : 'none',
+              borderRadius: 'var(--r-input)', cursor: sending || canSend ? 'pointer' : 'not-allowed',
+              background: sending ? 'var(--danger-bg)' : canSend ? 'var(--accent)' : 'var(--surface-sunken)',
+              color: sending ? 'var(--danger)' : canSend ? 'var(--accent-ink)' : 'var(--ink-300)',
               padding: '8px 14px', fontSize: 13, fontWeight: 700,
               fontFamily: 'var(--font-body)', transition: 'background var(--t-micro)',
             }}
           >
-            {sending ? '…' : 'Send'}
+            {sending ? 'Stop' : 'Send'}
           </button>
         </div>
         <div style={{
@@ -136,7 +146,9 @@ export function Conversation({ onSend }: { onSend: (text: string) => void }) {
           marginTop: 6, fontSize: 11, color: 'var(--ink-300)',
         }}>
           <span>Enter to send · Shift+Enter for a new line</span>
-          {mode === 'replay' && <span>Replay mode — sending switches to live</span>}
+          {sending
+            ? <span>Run in progress — Stop keeps your draft</span>
+            : mode === 'replay' && <span>Replay mode — sending switches to live</span>}
         </div>
       </div>
     </section>

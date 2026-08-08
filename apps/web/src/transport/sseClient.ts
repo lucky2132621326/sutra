@@ -92,12 +92,13 @@ export class SSEClient implements EventTransport {
  */
 export async function postChat(
   message: string, studentId: string, role: string,
-  threadId: string | null = null, base = '',
+  threadId: string | null = null, base = '', signal?: AbortSignal,
 ): Promise<{ runId: string; threadId: string }> {
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ message, student_id: studentId, role, thread_id: threadId }),
+    signal,
   })
   if (!res.ok) throw new Error(`chat ${res.status}`)
   const json = await res.json()
