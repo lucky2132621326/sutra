@@ -43,21 +43,20 @@ async def _warm_up() -> None:
     embedding model likewise takes tens of seconds to load. Doing both here
     means the first real question is fast, which matters on a demo clock.
     """
-    try:
-        await call_llm_async(
+    # Start all three cold loads together. Sequential warm-up could take over
+    # half a minute (provider chain, then Ollama, then embeddings), during
+    # which /health was green but the first policy query paid the full model
+    # loading cost. Failures remain isolated because all three are optional
+    # accelerators, not API readiness requirements.
+    await asyncio.gather(
+        call_llm_async(
             "Reply with JSON.", [{"role": "user", "content": 'Return {"ready":true} as JSON.'}],
             True,
-        )
-    except Exception:
-        pass  # a cold provider must not block startup
-    try:
-        await asyncio.to_thread(warm_local_ollama)
-    except Exception:
-        pass  # local fallback is optional; API health must not depend on it
-    try:
-        await asyncio.to_thread(_get_embedder)
-    except Exception:
-        pass
+        ),
+        asyncio.to_thread(warm_local_ollama),
+        asyncio.to_thread(_get_embedder),
+        return_exceptions=True,
+    )
 
 
 @asynccontextmanager

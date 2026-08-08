@@ -44,7 +44,7 @@ _DIRECT_READ_TOOLS = {
     "get_timetable", "get_attendance", "compute_attendance_eligibility",
     "recommend_electives", "check_placement_eligibility", "list_companies",
     "get_prep_plan", "search_events", "recommend_clubs", "library_loans",
-    "get_hostel_info",
+    "get_hostel_info", "search_policy",
 }
 
 
@@ -308,6 +308,27 @@ def _deterministic_read_plan(state: dict) -> Plan | None:
     student_id = state.get("student_id", "")
     spec: tuple[str, str, str, dict] | None = None
 
+    if "attendance" in lower and any(word in lower for word in ("exam", "sit", "required", "short", "minimum")):
+        return Plan(
+            goal=goal,
+            reasoning=("The attendance rule and the student's current records are independent reads, "
+                       "so the knowledge and academic agents can answer in parallel."),
+            steps=[
+                Step(
+                    id="s1", agent="academic",
+                    task="Read current attendance for every enrolled course.",
+                    expected_output="Current percentages and courses below the required threshold.",
+                    tool="get_attendance", tool_args={"student_id": student_id},
+                ),
+                Step(
+                    id="s2", agent="knowledge",
+                    task="What minimum attendance is required in each course to sit semester-end examinations?",
+                    expected_output="The attendance rule with its regulation clause.",
+                    tool="search_policy",
+                    tool_args={"query": "minimum attendance required in each course to sit semester end examinations"},
+                ),
+            ],
+        )
     if "elective" in lower:
         interest = "machine learning" if "machine learning" in lower else ""
         spec = ("academic", "recommend_electives", "Recommend suitable electives from the student's academic record.",
@@ -1284,12 +1305,12 @@ async def synthesize_node(state: dict) -> dict:
         result.get("output", "").strip() for result in results.values()
         if result.get("status") == "ok" and result.get("output", "").strip()
     ]
-    if results and len(successful_outputs) == len(results) and not citations and not action_log:
+    if results and len(successful_outputs) == len(results) and not action_log:
         answer = successful_outputs[0] if len(successful_outputs) == 1 else "\n".join(
             f"- {output}" for output in successful_outputs
         )
         await _emit(run_id, EventType.RUN_FINISHED, agent="synthesizer",
-                    payload={"answer": answer, "citations": [], "actions": []})
+                    payload={"answer": answer, "citations": citations, "actions": []})
         return {"final_answer": answer}
 
     payload = {

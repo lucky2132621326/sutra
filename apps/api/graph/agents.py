@@ -120,12 +120,9 @@ def _can_skip_compose(agent_name: str, tool_data: dict, tool_status: str) -> boo
     """Whether the step's write-up can be produced without an LLM call.
 
     Structured successes and deterministic tool errors need no second model
-    call. The knowledge agent is excluded when it has clauses: its value IS
-    reading prose out of those clauses, which is genuine language work rather
-    than restating a typed record.
+    call. Policy clauses are included: quoting the retrieved clause directly
+    is both faster and more faithful than asking a model to paraphrase it.
     """
-    if agent_name == "knowledge":
-        return False
     return bool(tool_data) and tool_status in ("ok", "degraded", "error")
 
 
@@ -185,8 +182,26 @@ def _describe_tool_result(tool_name: str, tool_data: dict, tool_status: str) -> 
 
     if "records" in tool_data:
         recs = tool_data["records"]
-        return "Attendance: " + "; ".join(
-            f"{r['course_name']} {r['percentage']}%" for r in recs) if recs else "No attendance records."
+        if not recs:
+            return "No attendance records."
+        below = [r for r in recs if r["percentage"] < 75]
+        if below:
+            risks = "; ".join(f"{r['course_name']} {r['percentage']}%" for r in below)
+            safe = "; ".join(f"{r['course_name']} {r['percentage']}%" for r in recs if r["percentage"] >= 75)
+            return f"You're below 75% in {risks}. Your other recorded courses are at or above 75%: {safe}."
+        return "All your recorded courses are at or above 75%: " + "; ".join(
+            f"{r['course_name']} {r['percentage']}%" for r in recs)
+
+    if "citations" in tool_data:
+        citations = tool_data["citations"]
+        if not citations:
+            return "I couldn't find a sufficiently relevant institutional policy for this question."
+        citation = citations[0]
+        first_sentence = str(citation.get("text", "")).split(". ", 1)[0].strip()
+        if first_sentence and not first_sentence.endswith("."):
+            first_sentence += "."
+        return (f"{citation.get('doc_title', 'The regulations')} clause "
+                f"{citation.get('clause', '')}: {first_sentence} [doc:0]")
 
     if "entries" in tool_data:
         entries = tool_data["entries"]
@@ -331,7 +346,28 @@ async def run_agent_step(agent_name: str, step: Step, state: dict) -> dict:
         tool_status = "ok"
         catalog = _tool_catalog(agent_name)
 
-        if catalog:
+        if agent_name == "knowledge":
+            # The policy retrieval above already called the correct tool and
+            # produced the grounded clauses. Do not ask a model to select and
+            # call search_policy a second time, then ask another model merely
+            # to repeat the first clause.
+            tool_name = "search_policy"
+            tool_data = {
+                "query": step.task,
+                "citations": retrieved,
+                "no_relevant_context": knowledge_abstained,
+            }
+            await bus.emit(AgentEvent(
+                id=uuid.uuid4().hex[:8], run_id=run_id, ts=time.time(), type=EventType.TOOL_CALLED,
+                node_id=step.id, agent=agent_name,
+                payload={"tool": tool_name, "args": {"query": step.task}},
+            ))
+            await bus.emit(AgentEvent(
+                id=uuid.uuid4().hex[:8], run_id=run_id, ts=time.time(), type=EventType.TOOL_RESULT,
+                node_id=step.id, agent=agent_name,
+                payload={"tool": tool_name, "status": "ok", "data": tool_data},
+            ))
+        elif catalog:
             if step.tool:
                 selection = {
                     "tool": step.tool,

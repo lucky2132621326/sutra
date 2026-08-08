@@ -68,11 +68,21 @@ def test_degraded_result_is_flagged_not_dressed_up():
     assert "Placement service unavailable" in text
 
 
-def test_knowledge_agent_still_uses_the_llm():
-    """RAG answers are genuine language work over retrieved prose — those must
-    NOT be shortcut."""
-    assert _can_skip_compose("knowledge", {"citations": []}, "ok") is False
+def test_grounded_knowledge_result_does_not_need_a_second_llm():
+    """Provider failure must not discard a clause the policy tool found."""
+    assert _can_skip_compose("knowledge", {"citations": [{"text": "75% required"}]}, "ok") is True
     assert _can_skip_compose("placement", {"is_eligible": True}, "ok") is True
+
+
+def test_policy_summary_preserves_clause_and_citation_marker():
+    data = {"citations": [{
+        "text": "A candidate needs seventy-five percent (75%) attendance in each course. More detail.",
+        "doc_title": "Academic Regulations R22", "clause": "4.2",
+    }]}
+    text = _describe_tool_result("search_policy", data, "ok")
+    assert "75%" in text
+    assert "4.2" in text
+    assert "[doc:0]" in text
 
 
 def test_no_tool_result_still_uses_the_llm():

@@ -168,6 +168,28 @@ async def test_elective_lookup_does_not_depend_on_planner_provider(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_attendance_rule_and_records_do_not_depend_on_planner_provider(monkeypatch):
+    async def must_not_call_model(*_args, **_kwargs):
+        raise AssertionError("known attendance workflow should not call the planner model")
+
+    async def capture_emit(_event):
+        return None
+
+    monkeypatch.setattr(nodes, "call_llm_async", must_not_call_model)
+    monkeypatch.setattr(nodes.bus, "emit", capture_emit)
+
+    result = await nodes.planner_node({
+        "run_id": "attendance-read",
+        "goal": "What attendance do I need to sit for exams, and am I currently short in anything?",
+        "student_id": "1602-23-733-042",
+        "iteration": 0,
+    })
+
+    assert [step.tool for step in result["plan"].steps] == ["get_attendance", "search_policy"]
+    assert all(not step.requires_approval for step in result["plan"].steps)
+
+
+@pytest.mark.asyncio
 async def test_preflight_resolves_event_display_title_before_checking_schedule(monkeypatch):
     emitted = []
 
