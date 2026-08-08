@@ -13,6 +13,7 @@
  * dedupe makes a deliberate reconnect lossless.
  */
 import type { AgentEvent } from '../types/events'
+import type { InboxResponse } from '../types/inbox'
 import type { EventTransport, TransportCallbacks } from './types'
 
 export class SSEClient implements EventTransport {
@@ -143,4 +144,10 @@ export async function health(base = ''): Promise<boolean> {
   } catch {
     return false
   }
+}
+
+export async function getInbox(studentId: string, base = ''): Promise<InboxResponse> {
+  const res = await fetch(`${base}/inbox/${encodeURIComponent(studentId)}`, { cache: 'no-store' })
+  if (!res.ok) throw new Error(`inbox ${res.status}`)
+  return res.json() as Promise<InboxResponse>
 }

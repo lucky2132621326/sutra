@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { ApprovalModal } from './components/ApprovalModal'
 import { Conversation } from './components/Conversation'
+import { InboxDrawer } from './components/InboxDrawer'
+import { useInbox } from './hooks/useInbox'
 import { MissionGallery } from './components/MissionGallery'
 import { NodeInspector } from './components/NodeInspector'
 import { PlanCanvas } from './components/dag/PlanCanvas'
@@ -24,6 +26,8 @@ const STUDENT = '1602-23-733-042'
 
 export default function App() {
   const s = useStore()
+  const [inboxOpen, setInboxOpen] = useState(false)
+  const inbox = useInbox(STUDENT)
   const replayRef = useRef<ReplaySource | null>(null)
   const sseRef = useRef<SSEClient | null>(null)
   const chatAbortRef = useRef<AbortController | null>(null)
@@ -319,6 +323,8 @@ export default function App() {
         onReplay={() => void startReplay(s.fixture)}
         onNewChat={newChat}
         onSpeedChange={changeReplaySpeed}
+        onInbox={() => setInboxOpen(true)}
+        inboxCount={inbox.data?.attention_count ?? 0}
       />
 
       <div className="cockpit" style={{ flex: 1, minHeight: 0 }}>
@@ -365,6 +371,15 @@ export default function App() {
       </div>
 
       <ApprovalModal onDecide={decide} />
+      {inboxOpen && (
+        <InboxDrawer
+          data={inbox.data}
+          loading={inbox.loading}
+          error={inbox.error}
+          onClose={() => setInboxOpen(false)}
+          onRefresh={inbox.refresh}
+        />
+      )}
     </div>
   )
 }
@@ -409,10 +424,14 @@ function Header({
   onReplay,
   onNewChat,
   onSpeedChange,
+  onInbox,
+  inboxCount,
 }: {
   onReplay: () => void
   onNewChat: () => void
   onSpeedChange: (speed: number) => void
+  onInbox: () => void
+  inboxCount: number
 }) {
   const s = useStore()
   const pct = s.progress.total ? (s.progress.index / s.progress.total) * 100 : 0
@@ -467,6 +486,10 @@ function Header({
       )}
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={onInbox} style={ghostBtn} className="inbox-trigger" aria-label={`Inbox${inboxCount ? `, ${inboxCount} alerts` : ''}`}>
+          Inbox
+          {inboxCount > 0 && <span className="inbox-badge">{inboxCount > 9 ? '9+' : inboxCount}</span>}
+        </button>
         {s.turns.length > 0 && (
           <button onClick={onNewChat} style={ghostBtn}>
             New chat

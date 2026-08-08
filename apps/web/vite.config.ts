@@ -14,6 +14,7 @@ export default defineConfig({
       '/chat': 'http://localhost:8000',
       '/approve': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/inbox': 'http://localhost:8000',
       '/admin': 'http://localhost:8000',
       '/stream': {
         target: 'http://localhost:8000',

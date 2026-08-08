@@ -20,9 +20,11 @@ from pydantic import BaseModel
 
 from apps.api.bus import bus
 from apps.api.graph.build import graph_session
+from apps.api.inbox import InboxResponse, build_inbox
 from apps.api.llm.router import call_llm_async
 from apps.api.rag.store import _get_embedder
 from apps.api.tools import chaos
+from apps.api.tools.exceptions import RecordNotFound
 from packages.contracts.events import AgentEvent, EventType
 
 _background_tasks: set[asyncio.Task] = set()
@@ -211,3 +213,12 @@ async def chaos_reset():
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/inbox/{student_id}", response_model=InboxResponse)
+async def inbox(student_id: str):
+    """Fast, quota-free campus alerts derived from current records."""
+    try:
+        return await asyncio.to_thread(build_inbox, student_id)
+    except RecordNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
