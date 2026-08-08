@@ -14,6 +14,7 @@
  */
 import type { AgentEvent } from '../types/events'
 import type { InboxResponse } from '../types/inbox'
+import type { Locale } from '../i18n'
 import type { EventTransport, TransportCallbacks } from './types'
 
 export class SSEClient implements EventTransport {
@@ -93,12 +94,12 @@ export class SSEClient implements EventTransport {
  */
 export async function postChat(
   message: string, studentId: string, role: string,
-  threadId: string | null = null, base = '', signal?: AbortSignal,
+  threadId: string | null = null, locale: Locale = 'en', base = '', signal?: AbortSignal,
 ): Promise<{ runId: string; threadId: string }> {
   const res = await fetch(`${base}/chat`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, student_id: studentId, role, thread_id: threadId }),
+    body: JSON.stringify({ message, student_id: studentId, role, thread_id: threadId, locale }),
     signal,
   })
   if (!res.ok) throw new Error(`chat ${res.status}`)

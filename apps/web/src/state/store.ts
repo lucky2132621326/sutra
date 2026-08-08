@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 
 import type { AgentEvent } from '../types/events'
+import { storedLocale, type Locale } from '../i18n'
 import type { PacingMode } from '../transport/replaySource'
 import type { TransportStatus } from '../transport/types'
 import { initialRunState, reduce, reduceAll, type RunState } from './runReducer'
@@ -27,6 +28,7 @@ export interface Turn {
 interface UIState {
   mode: Mode
   theme: 'light' | 'dark'
+  locale: Locale
   fixture: string
   pacing: PacingMode
   speed: number
@@ -67,6 +69,7 @@ interface Actions {
   seekTo: (index: number) => void
   setMode: (m: Mode) => void
   setTheme: (t: 'light' | 'dark') => void
+  setLocale: (locale: Locale) => void
   setFixture: (f: string) => void
   setPacing: (p: PacingMode) => void
   setSpeed: (n: number) => void
@@ -96,6 +99,7 @@ let turnSeq = 0
 export const useStore = create<UIState & Actions>((set, get) => ({
   mode: 'replay',
   theme: 'light',
+  locale: storedLocale(),
   fixture: 'golden_capabilities.jsonl',
   pacing: 'demo',
   speed: 1,
@@ -150,9 +154,14 @@ export const useStore = create<UIState & Actions>((set, get) => ({
 
   setMode: (mode) => set({ mode }),
   setTheme: (theme) => {
-    document.documentElement.setAttribute('data-theme', theme)
-    localStorage.setItem('sutra-theme', theme)
+    if (typeof document !== 'undefined') document.documentElement.setAttribute('data-theme', theme)
+    if (typeof window !== 'undefined') window.localStorage.setItem('sutra-theme', theme)
     set({ theme })
+  },
+  setLocale: (locale) => {
+    if (typeof document !== 'undefined') document.documentElement.lang = locale
+    if (typeof window !== 'undefined') window.localStorage.setItem('sutra-locale', locale)
+    set({ locale })
   },
   setFixture: (fixture) => set({ fixture }),
   setPacing: (pacing) => set({ pacing }),

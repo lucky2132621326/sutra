@@ -10,30 +10,15 @@
  * ledger — and each gets its own treatment, because conflating them is
  * exactly how a system ends up quietly claiming it did something it didn't.
  */
+import { Mic, MicOff } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 
+import { copy } from '../i18n'
+import { useVoiceInput } from '../hooks/useVoiceInput'
 import { useStore } from '../state/store'
 import { ActionLedger } from './ActionLedger'
 import { EvidenceCard } from './EvidenceCard'
 import { VerdictCard, findEligibility } from './VerdictCard'
-
-const SUGGESTIONS = [
-  {
-    label: 'The hero run',
-    text:
-      "I'm a third-year CSE student. Am I eligible for the Google internship? " +
-      'If yes, register me for the placement workshop, add it to my calendar, ' +
-      'and remind me an hour before.',
-  },
-  {
-    label: 'Attendance rule',
-    text: 'What attendance do I need to sit for exams, and am I currently short in anything?',
-  },
-  {
-    label: 'Eligibility only',
-    text: 'Am I eligible for the Google internship?',
-  },
-]
 
 export function Conversation({
   onSend,
@@ -49,6 +34,9 @@ export function Conversation({
   const mode = useStore((s) => s.mode)
   const backendUp = useStore((s) => s.backendUp)
   const composerFocusNonce = useStore((s) => s.composerFocusNonce)
+  const locale = useStore((s) => s.locale)
+  const voice = useVoiceInput()
+  const t = (key: Parameters<typeof copy>[1]) => copy(locale, key)
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const latestTurnText = turns.at(-1)?.text
@@ -66,6 +54,7 @@ export function Conversation({
 
   const submit = () => {
     if (!canSend) return
+    if (voice.listening) voice.stop()
     const text = draft.trim()
     setDraft('')
     onSend(text)
@@ -94,7 +83,7 @@ export function Conversation({
             fontSize: 12, color: 'var(--degraded)', background: 'var(--degraded-bg)',
             padding: '7px 10px', borderRadius: 'var(--r-chip)', marginBottom: 8,
           }}>
-            Backend is not reachable. Switch to Replay to show a recorded run.
+            {t('backendUnavailable')}
           </div>
         )}
         <div style={{
@@ -115,9 +104,7 @@ export function Conversation({
               }
             }}
             rows={2}
-            placeholder={mode === 'replay'
-              ? 'Ask anything — or press Play to replay a recorded run…'
-              : 'Ask anything…'}
+            placeholder={mode === 'replay' ? t('replayPlaceholder') : t('placeholder')}
             aria-label="Ask a question"
             style={{
               flex: 1, resize: 'none', border: 'none', outline: 'none', background: 'transparent',
@@ -125,6 +112,16 @@ export function Conversation({
               fontFamily: 'var(--font-body)', maxHeight: 120,
             }}
           />
+          <button
+            onClick={voice.listening ? voice.stop : voice.start}
+            type="button"
+            disabled={sending}
+            aria-label={voice.listening ? t('voiceStop') : t('voiceStart')}
+            title={voice.supported ? (voice.listening ? t('voiceStop') : t('voiceStart')) : t('voiceUnsupported')}
+            className={`voice-button${voice.listening ? ' is-listening' : ''}`}
+          >
+            {voice.listening ? <MicOff size={17} /> : <Mic size={17} />}
+          </button>
           <button
             onClick={sending ? onCancel : submit}
             disabled={sending ? false : !canSend}
@@ -138,17 +135,17 @@ export function Conversation({
               fontFamily: 'var(--font-body)', transition: 'background var(--t-micro)',
             }}
           >
-            {sending ? 'Stop' : 'Send'}
+            {sending ? t('stop') : t('send')}
           </button>
         </div>
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
           marginTop: 6, fontSize: 11, color: 'var(--ink-300)',
         }}>
-          <span>Enter to send · Shift+Enter for a new line</span>
+          <span>{voice.message ?? t('enterHint')}</span>
           {sending
-            ? <span>Run in progress — Stop keeps your draft</span>
-            : mode === 'replay' && <span>Replay mode — sending switches to live</span>}
+            ? <span>{t('runProgress')}</span>
+            : mode === 'replay' && <span>{t('replayHint')}</span>}
         </div>
       </div>
     </section>
@@ -156,18 +153,24 @@ export function Conversation({
 }
 
 function Welcome({ onPick }: { onPick: (text: string) => void }) {
+  const locale = useStore((s) => s.locale)
+  const t = (key: Parameters<typeof copy>[1]) => copy(locale, key)
+  const suggestions = [
+    { label: t('heroRun'), text: t('heroPrompt') },
+    { label: t('attendanceRule'), text: t('attendancePrompt') },
+    { label: t('eligibilityOnly'), text: t('eligibilityPrompt') },
+  ]
   return (
     <div style={{ paddingTop: 8 }}>
       <h1 className="font-display" style={{ fontSize: 26, lineHeight: '32px', margin: '0 0 8px' }}>
-        Ask the campus anything.
+        {t('welcomeTitle')}
       </h1>
       <p style={{ fontSize: 14, lineHeight: '21px', color: 'var(--ink-600)', margin: '0 0 18px' }}>
-        Five specialist agents plan together, check each other's work against real
-        records, and stop for your approval before anything is written.
+        {t('welcomeBody')}
       </p>
-      <div className="eyebrow" style={{ marginBottom: 8 }}>Try one</div>
+      <div className="eyebrow" style={{ marginBottom: 8 }}>{t('tryOne')}</div>
       <div style={{ display: 'grid', gap: 8 }}>
-        {SUGGESTIONS.map((s) => (
+        {suggestions.map((s) => (
           <button
             key={s.label}
             onClick={() => onPick(s.text)}

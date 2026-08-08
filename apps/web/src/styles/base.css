@@ -143,6 +143,19 @@ body {
 .mission-group:hover { border-color: var(--line-strong) !important; box-shadow: var(--e2) !important; }
 
 .inbox-trigger { display: inline-flex; align-items: center; gap: 7px; position: relative; }
+.voice-button {
+  width: 34px; height: 34px; flex: 0 0 34px; display: inline-grid; place-items: center;
+  border: 1px solid var(--line); border-radius: var(--r-input); background: var(--surface-sunken);
+  color: var(--ink-600); cursor: pointer;
+  transition: color var(--t-micro), background var(--t-micro), border-color var(--t-micro);
+}
+.voice-button:hover { color: var(--accent); border-color: var(--accent); }
+.voice-button:disabled { cursor: not-allowed; opacity: .45; }
+.voice-button.is-listening {
+  color: var(--danger); border-color: var(--danger); background: var(--danger-bg);
+  animation: sutra-mic-pulse 1.2s ease-in-out infinite;
+}
+@keyframes sutra-mic-pulse { 50% { box-shadow: 0 0 0 5px color-mix(in srgb, var(--danger) 16%, transparent) } }
 .inbox-badge {
   min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--r-pill);
   display: inline-flex; align-items: center; justify-content: center;

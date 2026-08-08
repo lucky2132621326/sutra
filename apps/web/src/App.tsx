@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { ApprovalModal } from './components/ApprovalModal'
 import { Conversation } from './components/Conversation'
 import { InboxDrawer } from './components/InboxDrawer'
+import { copy, LANGUAGES, type Locale } from './i18n'
 import { useInbox } from './hooks/useInbox'
 import { MissionGallery } from './components/MissionGallery'
 import { NodeInspector } from './components/NodeInspector'
@@ -45,6 +46,7 @@ export default function App() {
     const stamped = document.documentElement.getAttribute('data-theme') as 'light' | 'dark' | null
     const os = window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
     s.setTheme(saved ?? stamped ?? os)
+    document.documentElement.lang = useStore.getState().locale
 
     // An embedding host may flip data-theme at any time (its own theme
     // toggle). Mirror that into our state so the header button doesn't drift
@@ -135,7 +137,7 @@ export default function App() {
 
     try {
       const { runId, threadId } = await postChat(
-        text, STUDENT, 'student', st.threadId, '', controller.signal,
+        text, STUDENT, 'student', st.threadId, st.locale, '', controller.signal,
       )
       if (transportEpochRef.current !== epoch) return
       chatAbortRef.current = null
@@ -437,6 +439,7 @@ function Header({
   const pct = s.progress.total ? (s.progress.index / s.progress.total) * 100 : 0
   const inspecting = s.centerView !== 'missions'
   const inspectedEvents = s.mode === 'replay' ? s.progress.total : s.events.length
+  const t = (key: Parameters<typeof copy>[1]) => copy(s.locale, key)
 
   return (
     <header style={{
@@ -457,7 +460,7 @@ function Header({
               boxShadow: s.mode === m ? 'var(--e1)' : 'none',
               fontSize: 12.5, fontWeight: 700, color: s.mode === m ? 'var(--ink-900)' : 'var(--ink-400)',
               fontFamily: 'var(--font-body)', textTransform: 'capitalize',
-            }}>{m}</button>
+            }}>{m === 'replay' ? t('replay') : t('live')}</button>
         ))}
       </div>
 
@@ -468,7 +471,7 @@ function Header({
             {FIXTURES.map((f) => <option key={f.file} value={f.file}>{f.label}</option>)}
           </select>
           <button onClick={onReplay} style={primaryBtn}>
-            {s.fixture === 'golden_capabilities.jsonl' ? 'Play full showcase' : 'Play run'}
+            {s.fixture === 'golden_capabilities.jsonl' ? t('playShowcase') : t('playRun')}
           </button>
           <select value={s.speed} onChange={(e) => onSpeedChange(Number(e.target.value))} style={selectStyle}
             aria-label="Replay speed">
@@ -481,18 +484,18 @@ function Header({
           color: s.backendUp ? 'var(--success)' : 'var(--danger)',
         }}>
           <span style={{ width: 8, height: 8, borderRadius: 999, background: 'currentColor' }} />
-          {s.backendUp ? 'backend up' : 'backend down'}
+          {s.backendUp ? t('backendUp') : t('backendDown')}
         </span>
       )}
 
       <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12 }}>
         <button onClick={onInbox} style={ghostBtn} className="inbox-trigger" aria-label={`Inbox${inboxCount ? `, ${inboxCount} alerts` : ''}`}>
-          Inbox
+          {t('inbox')}
           {inboxCount > 0 && <span className="inbox-badge">{inboxCount > 9 ? '9+' : inboxCount}</span>}
         </button>
         {s.turns.length > 0 && (
           <button onClick={onNewChat} style={ghostBtn}>
-            New chat
+            {t('newChat')}
           </button>
         )}
         {s.centerView === 'plan' && (
@@ -511,10 +514,19 @@ function Header({
           aria-expanded={inspecting}
           style={inspecting ? ghostBtn : inspectBtn}
         >
-          {inspecting ? 'Close inspection' : `Inspect run${inspectedEvents ? ` · ${inspectedEvents}` : ''}`}
+          {inspecting ? t('closeInspection') : `${t('inspectRun')}${inspectedEvents ? ` · ${inspectedEvents}` : ''}`}
         </button>
+        <select
+          value={s.locale}
+          onChange={(event) => s.setLocale(event.target.value as Locale)}
+          style={selectStyle}
+          aria-label={t('language')}
+          title={t('language')}
+        >
+          {LANGUAGES.map((language) => <option key={language.value} value={language.value}>{language.label}</option>)}
+        </select>
         <button onClick={() => s.setTheme(s.theme === 'light' ? 'dark' : 'light')} style={ghostBtn}>
-          {s.theme === 'light' ? 'Dark' : 'Light'}
+          {s.theme === 'light' ? t('dark') : t('light')}
         </button>
       </div>
     </header>
