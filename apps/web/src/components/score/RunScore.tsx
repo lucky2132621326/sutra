@@ -1,10 +1,11 @@
-import { useMemo, type PointerEvent as ReactPointerEvent } from 'react'
+import { useMemo, useState, type PointerEvent as ReactPointerEvent } from 'react'
 
 import { useStore } from '../../state/store'
 import {
   SCORE_LANES, buildRunScoreModel, eventIndexForTime, formatElapsed,
   type ScoreBlock, type ScoreBlockStatus, type ScoreMarker,
 } from './runScoreModel'
+import { layoutScoreBlocks, layoutScoreMarkers, type LaidOutBlock, type LaidOutMarker } from './scoreLayout'
 
 const LABEL_W = 142
 const AXIS_H = 42
@@ -33,10 +34,10 @@ const MARKER_STYLE: Record<ScoreMarker['kind'], { color: string; bg: string; gly
   fallback: { color: 'var(--degraded)', bg: 'var(--degraded-bg)', glyph: '⇢' },
 }
 
-function laneHeight(blocks: ScoreBlock[], orchestrator: boolean, trackHeight: number, presentation: boolean): number {
-  const tracks = blocks.length ? Math.max(...blocks.map((block) => block.track)) + 1 : 1
+function laneHeight(blocks: LaidOutBlock[], orchestrator: boolean, trackHeight: number, presentation: boolean, markerTracks = 1): number {
+  const tracks = blocks.length ? Math.max(...blocks.map((block) => block.visualTrack)) + 1 : 1
   return Math.max(
-    orchestrator ? (presentation ? 94 : 76) : (presentation ? 72 : 56),
+    orchestrator ? Math.max(presentation ? 94 : 76, 12 + markerTracks * (presentation ? 34 : 28)) : (presentation ? 72 : 56),
     12 + tracks * trackHeight,
   )
 }
@@ -46,20 +47,13 @@ function position(ts: number, start: number, end: number): number {
   return Math.max(0, Math.min(100, ((ts - start) / span) * 100))
 }
 
-function WorkBlock({ block, startTs, endTs, onInspect, presentation, trackHeight }: {
-  block: ScoreBlock
-  startTs: number
-  endTs: number
+function WorkBlock({ block, selected, onInspect, presentation, trackHeight }: {
+  block: LaidOutBlock
+  selected: boolean
   onInspect: (block: ScoreBlock) => void
   presentation: boolean
   trackHeight: number
 }) {
-  const actualLeft = position(block.startTs, startTs, endTs)
-  const actualRight = position(block.endTs, startTs, endTs)
-  // The fixtures are intentionally fast (single-digit milliseconds). Keep the
-  // exact location, but widen short work enough to be selectable and readable.
-  const left = Math.min(actualLeft, 92)
-  const width = Math.max(0.35, actualRight - actualLeft)
   const style = STATUS_STYLE[block.status]
   const measured = block.latencyMs ?? Math.max(0, (block.endTs - block.startTs) * 1000)
   const tool = block.tools.join(' · ')
@@ -70,6 +64,7 @@ function WorkBlock({ block, startTs, endTs, onInspect, presentation, trackHeight
     block.retries ? `${block.retries} retr${block.retries === 1 ? 'y' : 'ies'}` : '',
     block.fallback ? 'Fallback used' : '',
   ].filter(Boolean).join('\n')
+  const showLabel = block.widthPct >= (presentation ? 7 : 9)
 
   return (
     <button
@@ -79,17 +74,19 @@ function WorkBlock({ block, startTs, endTs, onInspect, presentation, trackHeight
       aria-label={`${block.lane} agent: ${block.task}, ${style.label}, ${formatElapsed(measured)}`}
       onClick={(event) => { event.stopPropagation(); onInspect(block) }}
       style={{
-        position: 'absolute', left: `${left}%`, top: 6 + block.track * trackHeight,
-        width: `max(${width}%, ${presentation ? 126 : 82}px)`,
+        position: 'absolute', left: `${block.leftPct}%`, top: 6 + block.visualTrack * trackHeight,
+        width: `${block.widthPct}%`,
         height: presentation ? 48 : 36, minWidth: 0,
         border: `1px solid ${style.color}`, borderLeft: `4px solid ${style.color}`,
         borderRadius: 'var(--r-chip)', background: style.bg, color: 'var(--ink-900)',
-        padding: presentation ? '7px 11px' : '4px 8px',
+        padding: showLabel ? (presentation ? '7px 11px' : '4px 8px') : 0,
         textAlign: 'left', cursor: 'pointer', overflow: 'hidden',
-        boxShadow: block.status === 'running' ? '0 0 0 2px var(--running-bg)' : 'var(--e1)',
-        zIndex: 3, fontFamily: 'var(--font-body)',
+        boxShadow: selected ? `0 0 0 3px ${style.bg}, 0 0 0 4px ${style.color}`
+          : block.status === 'running' ? '0 0 0 2px var(--running-bg)' : 'var(--e1)',
+        zIndex: selected ? 5 : 3, fontFamily: 'var(--font-body)',
       }}
     >
+      {showLabel ? <>
       <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
         {block.status === 'running' && <span className="pulse-dot" style={{ background: style.color, flex: '0 0 auto' }} />}
         <strong style={{
@@ -106,36 +103,38 @@ function WorkBlock({ block, startTs, endTs, onInspect, presentation, trackHeight
         {tool || style.label} · {formatElapsed(measured)}
         {block.retries ? ` · retry ×${block.retries}` : ''}
       </span>
+      </> : <span aria-hidden style={{ display: 'block', width: '100%', height: '100%', background: style.color, opacity: .78 }} />}
     </button>
   )
 }
 
-function OrchestratorMarker({ marker, startTs, endTs, order, presentation }: {
-  marker: ScoreMarker
-  startTs: number
-  endTs: number
-  order: number
+function OrchestratorMarker({ marker, selected, onSelect, presentation }: {
+  marker: LaidOutMarker
+  selected: boolean
+  onSelect: (marker: ScoreMarker) => void
   presentation: boolean
 }) {
   const style = MARKER_STYLE[marker.kind]
-  const left = Math.min(position(marker.ts, startTs, endTs), 96)
   return (
-    <span
+    <button
+      data-score-marker
+      type="button"
       title={marker.label}
+      aria-label={`${marker.label}, orchestration marker`}
+      onClick={(event) => { event.stopPropagation(); onSelect(marker) }}
       style={{
-        position: 'absolute', left: `${left}%`, top: order % 2 ? (presentation ? 49 : 39) : 6,
-        transform: left > 88 ? 'translateX(-100%)' : left < 8 ? 'none' : 'translateX(-50%)',
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-        maxWidth: presentation ? 170 : 118,
-        padding: presentation ? '5px 10px' : '3px 7px', borderRadius: 'var(--r-pill)',
+        position: 'absolute', left: `${marker.leftPct}%`, top: 6 + marker.visualTrack * (presentation ? 34 : 28),
+        transform: marker.leftPct > 97 ? 'translateX(-100%)' : 'translateX(-50%)',
+        width: presentation ? 30 : 24, height: presentation ? 30 : 24,
+        display: 'inline-grid', placeItems: 'center', padding: 0, borderRadius: '50%',
         border: `1px solid ${style.color}`, background: style.bg, color: style.color,
-        fontSize: presentation ? 13 : 10.5,
-        lineHeight: presentation ? '17px' : '14px', fontWeight: 700, whiteSpace: 'nowrap',
-        overflow: 'hidden', textOverflow: 'ellipsis', zIndex: 5,
+        fontSize: presentation ? 14 : 11, fontWeight: 800, cursor: 'pointer',
+        boxShadow: selected ? `0 0 0 3px ${style.bg}, 0 0 0 4px ${style.color}` : 'var(--e1)',
+        zIndex: selected ? 7 : 5,
       }}
     >
-      <span aria-hidden>{style.glyph}</span>{marker.label}
-    </span>
+      <span aria-hidden>{style.glyph}</span>
+    </button>
   )
 }
 
@@ -149,6 +148,7 @@ export function RunScore({ onSeek, presentation = false }: {
   const run = useStore((s) => s.run)
   const openInspector = useStore((s) => s.openInspector)
   const closeInspector = useStore((s) => s.closeInspector)
+  const [selection, setSelection] = useState<{ kind: 'block' | 'marker'; id: string } | null>(null)
 
   const events = mode === 'replay' ? sourceEvents : run.timeline
   const labelWidth = presentation ? 188 : LABEL_W
@@ -162,6 +162,14 @@ export function RunScore({ onSeek, presentation = false }: {
   )
   const axisStart = model.startTs
   const axisEnd = model.endTs
+  const laidOutBlocks = useMemo(
+    () => layoutScoreBlocks(model.blocks, axisStart, axisEnd, presentation ? 1 : 1.4),
+    [model.blocks, axisStart, axisEnd, presentation],
+  )
+  const laidOutMarkers = useMemo(
+    () => layoutScoreMarkers(model.markers, axisStart, axisEnd, presentation ? 2.3 : 3.2),
+    [model.markers, axisStart, axisEnd, presentation],
+  )
   const cursorLeft = position(model.cursorTs, axisStart, axisEnd)
   const elapsedMs = model.visibleCount > 0
     ? Math.max(0, (model.cursorTs - model.startTs) * 1000)
@@ -175,23 +183,35 @@ export function RunScore({ onSeek, presentation = false }: {
   })
   const blocksByLane = new Map(SCORE_LANES.map((lane) => [
     lane.id,
-    model.blocks.filter((block) => block.lane === lane.id),
+    laidOutBlocks.filter((block) => block.lane === lane.id),
   ]))
+  const markerTrackCount = laidOutMarkers.length
+    ? Math.max(...laidOutMarkers.map((marker) => marker.visualTrack)) + 1 : 1
   const heights = SCORE_LANES.map((lane) => laneHeight(
     blocksByLane.get(lane.id) ?? [], lane.id === 'orchestrator', trackHeight, presentation,
+    lane.id === 'orchestrator' ? markerTrackCount : 1,
   ))
   const bodyHeight = heights.reduce((sum, height) => sum + height, 0)
   const criticalMarkers = model.markers.filter((marker) => marker.kind === 'conflict' || marker.kind === 'approval')
   const observedTools = new Set(model.blocks.flatMap((block) => block.tools))
+  const selectedBlock = selection?.kind === 'block'
+    ? laidOutBlocks.find((block) => block.id === selection.id) ?? null : null
+  const selectedMarker = selection?.kind === 'marker'
+    ? laidOutMarkers.find((marker) => marker.id === selection.id) ?? null : null
 
   const inspect = (block: ScoreBlock) => {
     if (mode === 'replay') onSeek(block.endIndex)
-    openInspector(block.stepId)
+    setSelection({ kind: 'block', id: block.id })
+  }
+
+  const selectMarker = (marker: ScoreMarker) => {
+    if (mode === 'replay') onSeek(marker.index)
+    setSelection({ kind: 'marker', id: marker.id })
   }
 
   const seekFromPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (mode !== 'replay' || !events.length) return
-    if ((event.target as HTMLElement).closest('[data-score-block]')) return
+    if ((event.target as HTMLElement).closest('[data-score-block], [data-score-marker]')) return
     const rect = event.currentTarget.getBoundingClientRect()
     const fraction = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
     const ts = axisStart + (axisEnd - axisStart) * fraction
@@ -215,7 +235,7 @@ export function RunScore({ onSeek, presentation = false }: {
               color: 'var(--accent)', fontSize: presentation ? 14 : undefined,
             }}>Agent collaboration score</div>
             <div style={{ fontSize: presentation ? 14 : 12, color: 'var(--ink-400)' }}>
-              {mode === 'replay' ? 'Recorded backend events' : 'Live wall time'} · short work is widened for readability
+              {mode === 'replay' ? 'Recorded backend events' : 'Live wall time'} · width shows latency · click to expand
             </div>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: presentation ? 28 : 16, alignItems: 'baseline' }}>
@@ -226,6 +246,17 @@ export function RunScore({ onSeek, presentation = false }: {
         </div>
         <CapabilityCoverage blocks={model.blocks} presentation={presentation} />
       </header>
+
+      {(selectedBlock || selectedMarker) && (
+        <ScoreSelection
+          block={selectedBlock}
+          marker={selectedMarker}
+          startTs={axisStart}
+          presentation={presentation}
+          onClose={() => setSelection(null)}
+          onFullTrace={selectedBlock ? () => openInspector(selectedBlock.stepId) : null}
+        />
+      )}
 
       <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
         <div style={{ minWidth: presentation ? 980 : 620, position: 'relative' }}>
@@ -288,15 +319,17 @@ export function RunScore({ onSeek, presentation = false }: {
                         position: 'absolute', left: 0, right: 0, top: '50%', height: 1,
                         background: 'var(--line)',
                       }} />
-                      {lane.id === 'orchestrator' && model.markers.map((marker, index) => (
+                      {lane.id === 'orchestrator' && laidOutMarkers.map((marker) => (
                         <OrchestratorMarker
-                          key={marker.id} marker={marker} startTs={axisStart} endTs={axisEnd}
-                          order={index} presentation={presentation}
+                          key={marker.id} marker={marker}
+                          selected={selection?.kind === 'marker' && selection.id === marker.id}
+                          onSelect={selectMarker} presentation={presentation}
                         />
                       ))}
                       {laneBlocks.map((block) => (
                         <WorkBlock
-                          key={block.id} block={block} startTs={axisStart} endTs={axisEnd}
+                          key={block.id} block={block}
+                          selected={selection?.kind === 'block' && selection.id === block.id}
                           onInspect={inspect} presentation={presentation} trackHeight={trackHeight}
                         />
                       ))}
@@ -401,6 +434,62 @@ export function RunScore({ onSeek, presentation = false }: {
         </div>
       </div>
     </section>
+  )
+}
+
+function ScoreSelection({ block, marker, startTs, presentation, onClose, onFullTrace }: {
+  block: LaidOutBlock | null
+  marker: LaidOutMarker | null
+  startTs: number
+  presentation: boolean
+  onClose: () => void
+  onFullTrace: (() => void) | null
+}) {
+  if (!block && !marker) return null
+  const blockStyle = block ? STATUS_STYLE[block.status] : null
+  const markerStyle = marker ? MARKER_STYLE[marker.kind] : null
+  const accent = blockStyle?.color ?? markerStyle?.color ?? 'var(--accent)'
+  const measured = block
+    ? block.latencyMs ?? Math.max(0, (block.endTs - block.startTs) * 1000)
+    : Math.max(0, ((marker?.ts ?? startTs) - startTs) * 1000)
+  return (
+    <div role="status" aria-live="polite" style={{
+      minHeight: presentation ? 76 : 64, padding: presentation ? '11px 22px' : '8px 14px',
+      display: 'flex', alignItems: 'center', gap: presentation ? 18 : 12,
+      borderBottom: '1px solid var(--line)', background: 'var(--surface-raised)',
+      boxShadow: 'var(--e1)',
+    }}>
+      <span aria-hidden style={{ width: 4, alignSelf: 'stretch', borderRadius: 4, background: accent }} />
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div className="eyebrow" style={{ color: accent, fontSize: presentation ? 11.5 : 9.5 }}>
+          {block ? `${block.lane} · ${blockStyle?.label}` : `Orchestration · ${marker?.kind}`}
+        </div>
+        <div style={{
+          marginTop: 1, fontSize: presentation ? 16 : 13, fontWeight: 700,
+          lineHeight: presentation ? '21px' : '17px', color: 'var(--ink-900)',
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {block?.task ?? marker?.label}
+        </div>
+        <div style={{ marginTop: 2, fontSize: presentation ? 12.5 : 10.5, color: 'var(--ink-400)' }}>
+          {block
+            ? `${block.tools.length ? block.tools.join(' · ') : 'No tool call'} · latency ${formatElapsed(measured)}${block.retries ? ` · ${block.retries} retries` : ''}${block.fallback ? ' · fallback used' : ''}`
+            : `Occurred at ${formatElapsed(measured)} from run start`}
+        </div>
+      </div>
+      {onFullTrace && (
+        <button onClick={onFullTrace} style={{
+          border: '1px solid var(--accent)', background: 'var(--accent-weak)', color: 'var(--accent)',
+          borderRadius: 'var(--r-input)', padding: presentation ? '7px 12px' : '5px 9px',
+          font: `700 ${presentation ? 12.5 : 10.5}px var(--font-body)`, cursor: 'pointer', whiteSpace: 'nowrap',
+        }}>Full trace</button>
+      )}
+      <button onClick={onClose} aria-label="Close expanded score item" style={{
+        width: presentation ? 34 : 28, height: presentation ? 34 : 28, border: '1px solid var(--line)',
+        borderRadius: 'var(--r-input)', background: 'transparent', color: 'var(--ink-600)',
+        fontSize: presentation ? 20 : 17, lineHeight: 1, cursor: 'pointer',
+      }}>×</button>
+    </div>
   )
 }
 
