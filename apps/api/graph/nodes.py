@@ -253,7 +253,16 @@ def _workflow_plan_for_event(state: dict, event, reasoning: str) -> Plan:
 async def _deterministic_initial_workshop_plan(state: dict) -> Plan | None:
     """Fast, data-backed plan for the showcased eligibility+workshop mission."""
     goal = state.get("goal", "").lower()
-    if "register" not in goal or "workshop" not in goal:
+    # Require the eligibility phrase too, not just "register"+"workshop".
+    #
+    # MEASURED regression: with only those two words required, the approval-
+    # gating tests' goal ("register me for the placement workshop" — no
+    # eligibility, calendar or reminder mentioned) also matched. needs_calendar
+    # and needs_reminder in _workflow_plan_for_event then came back False, so
+    # the deterministic plan silently dropped the calendar step those tests
+    # depend on — a one-line trigger reaching past the flagship mission it was
+    # built for and clipping an unrelated scenario's plan.
+    if "register" not in goal or "workshop" not in goal or "eligib" not in goal:
         return None
 
     from apps.api.tools import events as events_tool
